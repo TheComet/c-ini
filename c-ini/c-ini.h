@@ -3,3 +3,4 @@
 #define SECTION(x)
 #define DEFAULT(init)
 #define CONSTRAIN(min, max)
+#define IGNORE()

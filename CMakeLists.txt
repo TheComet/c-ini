@@ -70,4 +70,18 @@ if (C_INI_EXAMPLES)
     target_compile_options (c_ini_example2 PRIVATE
         $<$<C_COMPILER_ID:GNU>:-Wall -Wextra -pedantic -ansi>)
     target_link_libraries (c_ini_example2 PRIVATE c_ini)
+
+    c_ini_generate (
+        INPUT "${PROJECT_SOURCE_DIR}/examples/example3.c"
+        HEADER "${PROJECT_BINARY_DIR}/example3/include/example3/player_ini.h"
+        SOURCE "${PROJECT_BINARY_DIR}/example3/src/player_ini.c")
+    add_executable (c_ini_exmaple3
+        "examples/example3.c"
+        "${PROJECT_BINARY_DIR}/example3/include/example3/player_ini.h"
+        "${PROJECT_BINARY_DIR}/example3/src/player_ini.c")
+    target_include_directories (c_ini_exmaple3 PRIVATE
+        "${PROJECT_BINARY_DIR}/example3/include")
+    target_compile_options (c_ini_exmaple3 PRIVATE
+        $<$<C_COMPILER_ID:GNU>:-Wall -Wextra -pedantic -ansi>)
+    target_link_libraries (c_ini_exmaple3 PRIVATE c_ini)
 endif ()

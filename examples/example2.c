@@ -27,8 +27,8 @@ int main(int argc, char* argv[])
     settings_client_fwrite(&settings.client, stdout);
     settings_server_fwrite(&settings.server, stdout);
 
-    settings_client_read(&settings.client, "<stdin>", overlay, strlen(overlay));
-    settings_server_read(&settings.server, "<stdin>", overlay, strlen(overlay));
+    settings_client_parse(&settings.client, "<stdin>", overlay, strlen(overlay));
+    settings_server_parse(&settings.server, "<stdin>", overlay, strlen(overlay));
 
     settings_client_fwrite(&settings.client, stdout);
     settings_server_fwrite(&settings.server, stdout);
