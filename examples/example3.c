@@ -1,5 +1,6 @@
 #include "c-ini.h"
 #include "example3/player_ini.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,26 +15,31 @@ struct sprite
     char                layer[32];
     float               x, y;
     float scale         DEFAULT(1);
+    unsigned            enabled : 1 DEFAULT(1) CONSTRAIN(0, 1);
+    bool visible        DEFAULT(true);
 };
 
 SECTION("player")
 struct player_data
 {
-    char*                  name;
+    char*                  username;
     char** enemies         DEFAULT("God") DEFAULT("The Devil");
+    char                   friends[2][32] DEFAULT("Alice") DEFAULT("Charlie");
     struct sprite* sprites IGNORE();
 };
 
 static const char* overlay =
     "[sprite]\n"
+    "visible = false\n"
     "name = \"body\"\n"
 
     "[sprite]\n"
     "name = \"head\"\n"
     "scale = 2\n"
 
-    "[client]\n"
-    "username = \"Bob\"\n";
+    "[player]\n"
+    "username = \"Bob\"\n"
+    "friends = \"enemy1\", \"enemy2\"";
 
 static int on_section(struct c_ini_parser* p, void* user_ptr)
 {
@@ -53,6 +59,7 @@ int main(void)
 
     player_data_init(&player);
     sprite_parse_all("<stdin>", overlay, strlen(overlay), on_section, &player);
+    player_data_parse(&player, "<stdin>", overlay, strlen(overlay));
 
     player_data_fwrite(&player, stdout);
     for (sprite = player.sprites; sprite; sprite = sprite->next)
