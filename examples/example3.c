@@ -20,6 +20,7 @@ SECTION("player")
 struct player_data
 {
     char*                  name;
+    char** enemies         DEFAULT("God") DEFAULT("The Devil");
     struct sprite* sprites IGNORE();
 };
 
@@ -44,20 +45,21 @@ static int on_section(struct c_ini_parser* p, void* user_ptr)
     return sprite_parse_section(sprite, p);
 }
 
-int main(int argc, char* argv[])
+int main(void)
 {
     struct player_data player;
     struct sprite*     sprite;
-    (void)argc, (void)argv;
+    struct sprite*     next;
 
     player_data_init(&player);
-
     sprite_parse_all("<stdin>", overlay, strlen(overlay), on_section, &player);
 
     player_data_fwrite(&player, stdout);
     for (sprite = player.sprites; sprite; sprite = sprite->next)
         sprite_fwrite(sprite, stdout);
 
+    for (sprite = player.sprites; sprite; sprite = next)
+        sprite_deinit(sprite), next = sprite->next, free(sprite);
     player_data_deinit(&player);
 
     return 0;

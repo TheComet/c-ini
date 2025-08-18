@@ -22,7 +22,7 @@ int main(void)
 {
     struct player_data player;
     player_data_init(&player);  /* Sets default values */
-    player_data_load(&player, "<stdin>", config, strlen(config));
+    player_data_parse(&player, "<stdin>", config, strlen(config));
     player_data_fwrite(&player, stdout);
     player_data_deinit(&player);
 
@@ -45,8 +45,8 @@ struct player_data
 
 ```DEFAULT()``` modifies the ```_init()``` function to use the custom default values.
 
-```CONSTRAIN()```  adds checks to the ```_load()``` function. If the  INI  file
-contains  a  value  outside  of  the  constrained  range, then it  will  error.
+```CONSTRAIN()``` adds  checks  to the ```_parse()``` function. If the INI file
+contains  a  value  outside  of  the  constrained  range,  then it will  error.
 
 ## With CMake
 

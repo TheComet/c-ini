@@ -24,22 +24,22 @@
  * ------------------------------------------------------------------------- */
 
 /*! All strings are represented as an offset and a length into a buffer. */
-struct str_view
+struct strview
 {
     const char* source;
     int         off, len;
 };
 
-static struct str_view empty_str_view(void)
+static struct strview empty_strview(void)
 {
-    struct str_view sv;
+    struct strview sv;
     sv.source = "";
     sv.off = 0;
     sv.len = 0;
     return sv;
 }
 
-static int cstr_equal(const char* s1, struct str_view s2)
+static int cstr_equal(const char* s1, struct strview s2)
 {
     if ((int)strlen(s1) != s2.len)
         return 0;
@@ -66,11 +66,11 @@ static const char* reset_style(void)
 }
 
 static void print_vflc(
-    const char*     filename,
-    const char*     source,
-    struct str_view loc,
-    const char*     fmt,
-    va_list         ap)
+    const char*    filename,
+    const char*    source,
+    struct strview loc,
+    const char*    fmt,
+    va_list        ap)
 {
     int i;
     int l1, c1;
@@ -95,14 +95,14 @@ static void print_vflc(
     vfprintf(stderr, fmt, ap);
 }
 
-static void print_excerpt(const char* source, struct str_view loc)
+static void print_excerpt(const char* source, struct strview loc)
 {
-    int             i;
-    int             l1, c1, l2, c2;
-    int             indent, max_indent;
-    int             gutter_indent;
-    int             line;
-    struct str_view block;
+    int            i;
+    int            l1, c1, l2, c2;
+    int            indent, max_indent;
+    int            gutter_indent;
+    int            line;
+    struct strview block;
 
     /* Calculate line column as well as beginning of block. The goal is to make
      * "block" point to the first character in the line that contains the
@@ -775,7 +775,7 @@ static void mstream_cstr(struct mstream* ms, const char* cstr)
 }
 
 /*! Write a string view to the mstream buffer */
-static void mstream_str(struct mstream* ms, struct str_view str)
+static void mstream_str(struct mstream* ms, struct strview str)
 {
     mstream_grow(ms, str.len);
     memcpy((char*)ms->address + ms->write_ptr, str.source + str.off, str.len);
@@ -789,7 +789,7 @@ static void mstream_str(struct mstream* ms, struct str_view str)
  *   %i - Write an integer (int)
  *   %d - Write an integer (int)
  *   %s - Write a c-string (const char*)
- *   %S - Write a string view (struct str_view, const char*)
+ *   %S - Write a string view (struct strview, const char*)
  * \param[in] ms Pointer to mstream structure.
  * \param[in] fmt Format string.
  * \param[in] ... Additional parameters.
@@ -810,7 +810,7 @@ static void mstream_fmt(struct mstream* ms, const char* fmt, ...)
                 case 'd': mstream_write_int(ms, va_arg(va, int)); continue;
                 case 'f': mstream_write_float(ms, va_arg(va, double)); continue;
                 case 'S': {
-                    struct str_view str = va_arg(va, struct str_view);
+                    struct strview str = va_arg(va, struct strview);
                     mstream_str(ms, str);
                     continue;
                 }
@@ -918,9 +918,9 @@ struct parser
 {
     union
     {
-        struct str_view str;
-        int64_t         integer;
-        double          floating;
+        struct strview str;
+        int64_t        integer;
+        double         floating;
     } value;
     const char* filename;
     const char* data;
@@ -941,8 +941,8 @@ parser_init(struct parser* p, const struct mfile* mf, const char* filename)
 
 static int parser_error(const struct parser* p, const char* fmt, ...)
 {
-    va_list         ap;
-    struct str_view loc;
+    va_list        ap;
+    struct strview loc;
 
     loc.off = p->tail;
     loc.len = p->head - p->tail;
@@ -1093,21 +1093,52 @@ static void ll_remove(struct ll** node)
     *node = (*node)->next;
 }
 
+static int ll_count(const struct ll* head)
+{
+    int count = 0;
+    while (head)
+        ++count, head = head->next;
+    return count;
+}
+
+static void ll_reverse(struct ll** head)
+{
+    struct ll* next;
+    struct ll* prev = NULL;
+    while (*head)
+    {
+        next = (*head)->next;
+        (*head)->next = prev;
+        prev = *head;
+        *head = next;
+    }
+    *head = prev;
+}
+
 enum c_data_type
 {
     CDT_UNKNOWN,
+
     CDT_STR_FIXED,
     CDT_STR_DYNAMIC,
     CDT_STR_CUSTOM,
+
+    CDT_STRLIST_FIXED,
+    CDT_STRLIST_DYNAMIC,
+    CDT_STRLIST_CUSTOM,
+
     CDT_BOOL,
+
     CDT_IBITFIELD,
     CDT_UBITFIELD,
+
     CDT_I8,
     CDT_U8,
     CDT_I16,
     CDT_U16,
     CDT_I32,
     CDT_U32,
+
     CDT_FLOAT
 };
 
@@ -1115,7 +1146,14 @@ enum value_type
 {
     VT_INTEGER,
     VT_FLOAT,
-    VT_STRING
+    VT_STRING,
+    VT_STRLIST
+};
+
+struct strlist
+{
+    struct strlist* next;
+    struct strview  str;
 };
 
 struct value
@@ -1124,7 +1162,8 @@ struct value
     {
         int64_t         integer;
         double          floating;
-        struct str_view str;
+        struct strview  str;
+        struct strlist* strlist;
     } value;
     enum value_type type;
 };
@@ -1138,7 +1177,7 @@ struct attributes
 struct key
 {
     struct key*       next;
-    struct str_view   name;
+    struct strview    name;
     struct attributes attr;
     enum c_data_type  type;
 };
@@ -1146,9 +1185,9 @@ struct key
 struct section
 {
     struct section* next;
-    struct str_view name;
-    struct str_view struct_name;
-    struct str_view struct_def;
+    struct strview  name;
+    struct strview  struct_name;
+    struct strview  struct_def;
     struct key*     keys;
 };
 
@@ -1157,21 +1196,29 @@ struct root
     struct section* sections;
 };
 
+static struct strlist* strlist_create(struct strview str)
+{
+    struct strlist* list = malloc(sizeof *list);
+    list->next = NULL;
+    list->str = str;
+    return list;
+}
+
 static struct section* section_create(
-    struct root* root, struct str_view name, struct str_view struct_name)
+    struct root* root, struct strview name, struct strview struct_name)
 {
     struct section* section = malloc(sizeof *section);
     section->next = NULL;
     section->name = name;
     section->struct_name = struct_name;
-    section->struct_def = empty_str_view();
+    section->struct_def = empty_strview();
     section->keys = NULL;
     ll_append((struct ll**)&root->sections, (struct ll*)section);
     return section;
 }
 
 static struct key*
-key_create(struct section* section, struct str_view name, enum c_data_type type)
+key_create(struct section* section, struct strview name, enum c_data_type type)
 {
     struct key* key = malloc(sizeof *key);
     key->next = NULL;
@@ -1192,8 +1239,11 @@ attributes_set_default_for_type(struct attributes* attr, enum c_data_type type)
         case CDT_STR_DYNAMIC:
         case CDT_STR_CUSTOM:
             attr->default_value.type = VT_STRING;
-            attr->default_value.value.str = empty_str_view();
+            attr->default_value.value.str = empty_strview();
             break;
+        case CDT_STRLIST_FIXED:
+        case CDT_STRLIST_DYNAMIC:
+        case CDT_STRLIST_CUSTOM: break;
         case CDT_BOOL:
         case CDT_IBITFIELD:
         case CDT_UBITFIELD:
@@ -1223,6 +1273,9 @@ attributes_set_default_for_type(struct attributes* attr, enum c_data_type type)
         case CDT_STR_FIXED:
         case CDT_STR_DYNAMIC:
         case CDT_STR_CUSTOM: break;
+        case CDT_STRLIST_FIXED:
+        case CDT_STRLIST_DYNAMIC:
+        case CDT_STRLIST_CUSTOM: break;
         case CDT_BOOL: SET_MIN_MAX(attr, 0, 1); break;
         case CDT_IBITFIELD:
         case CDT_UBITFIELD: SET_MIN_MAX(attr, INT32_MIN, INT32_MAX); break;
@@ -1243,8 +1296,8 @@ attributes_set_default_for_type(struct attributes* attr, enum c_data_type type)
 static enum token
 parse_basic_data_type(struct parser* p, enum token tok, enum c_data_type* type)
 {
-    int             is_unsigned, is_basic_type;
-    struct str_view name;
+    int            is_unsigned, is_basic_type;
+    struct strview name;
 
     is_unsigned = 0;
     if (cstr_equal("unsigned", p->value.str))
@@ -1297,10 +1350,15 @@ parse_basic_data_type(struct parser* p, enum token tok, enum c_data_type* type)
                         p->value.str.source + p->value.str.off);
             }
 
-        if (*type == CDT_I8 && tok == TOK_ASTERISK)
+        if (*type == CDT_I8 && tok == '*')
         {
             *type = CDT_STR_DYNAMIC;
             tok = scan_next(p);
+            if (tok == '*')
+            {
+                *type = CDT_STRLIST_DYNAMIC;
+                tok = scan_next(p);
+            }
         }
 
         return tok;
@@ -1318,6 +1376,16 @@ parse_basic_data_type(struct parser* p, enum token tok, enum c_data_type* type)
                     "Built-in string type 'str' must be of type 'struct "
                     "str*'\n");
             *type = CDT_STR_CUSTOM;
+            return scan_next(p);
+        }
+        else if (cstr_equal("strlist", p->value.str))
+        {
+            if (scan_next(p) != '*')
+                return parser_error(
+                    p,
+                    "Built-in string type 'strlist' must be of type 'struct "
+                    "strlist*'\n");
+            *type = CDT_STRLIST_CUSTOM;
             return scan_next(p);
         }
     }
@@ -1348,6 +1416,19 @@ static enum token parse_attribute_default(
                     "struct. Expected a string.\n");
             attr->default_value.type = VT_STRING;
             attr->default_value.value.str = p->value.str;
+            break;
+        case CDT_STRLIST_FIXED:
+        case CDT_STRLIST_DYNAMIC:
+        case CDT_STRLIST_CUSTOM:
+            if (tok != TOK_STRING)
+                return parser_error(
+                    p,
+                    "Type in DEFAULT() does not match declared type in "
+                    "struct. Expected a string.\n");
+            attr->default_value.type = VT_STRLIST;
+            ll_append(
+                (struct ll**)&attr->default_value.value.strlist,
+                (struct ll*)strlist_create(p->value.str));
             break;
         case CDT_BOOL:
             attr->default_value.type = VT_INTEGER;
@@ -1421,6 +1502,9 @@ static enum token parse_attribute_default(
         case CDT_STR_FIXED: break;
         case CDT_STR_DYNAMIC: break;
         case CDT_STR_CUSTOM: break;
+        case CDT_STRLIST_FIXED:
+        case CDT_STRLIST_DYNAMIC:
+        case CDT_STRLIST_CUSTOM: break;
         case CDT_IBITFIELD:
         case CDT_UBITFIELD: return parser_error(p, "Not yet implemented\n");
         case CDT_BOOL: break;
@@ -1449,6 +1533,11 @@ static int enforce_constrain_type(
         case CDT_STR_FIXED:
         case CDT_STR_DYNAMIC:
         case CDT_STR_CUSTOM:
+            return parser_error(
+                p, "CONSTRAIN() doesn't make sense for string types\n");
+        case CDT_STRLIST_FIXED:
+        case CDT_STRLIST_DYNAMIC:
+        case CDT_STRLIST_CUSTOM:
             return parser_error(
                 p, "CONSTRAIN() doesn't make sense for string types\n");
         case CDT_BOOL:
@@ -1493,6 +1582,9 @@ enforce_constrain_range(const struct parser* p, enum c_data_type type)
         case CDT_STR_FIXED: break;
         case CDT_STR_DYNAMIC: break;
         case CDT_STR_CUSTOM: break;
+        case CDT_STRLIST_FIXED: break;
+        case CDT_STRLIST_DYNAMIC: break;
+        case CDT_STRLIST_CUSTOM: break;
         case CDT_IBITFIELD:
         case CDT_UBITFIELD: return parser_error(p, "Not yet implemented\n");
         case CDT_BOOL: CHECK_INT_RANGE(CDT_BOOL, 0, 1); break;
@@ -1577,8 +1669,8 @@ static enum token parse_struct_known_data_type(
     enum c_data_type c_type,
     enum token       tok)
 {
-    struct str_view key_name;
-    struct key*     key;
+    struct strview key_name;
+    struct key*    key;
 
     if (tok != TOK_IDENTIFIER)
         return parser_error(p, "Expected an identifier\n");
@@ -1685,7 +1777,7 @@ parse(struct parser* p, struct root* root, int input_is_a_source_file)
 
             case TOK_IDENTIFIER: {
                 struct section* section;
-                struct str_view section_name, struct_name, struct_def;
+                struct strview  section_name, struct_name, struct_def;
                 if (scan_next(p) != '(')
                     return parser_error(p, "Expected '(' after SECTION name\n");
                 if (scan_next(p) != TOK_STRING)
@@ -1815,22 +1907,22 @@ static void gen_source_ini_parser(struct mstream* ms)
 {
     mstream_cstr(
         ms,
-        "struct str_view\n"
+        "struct strview\n"
         "{\n"
         "    int off, len;\n"
         "};\n\n");
     mstream_cstr(
         ms,
-        "struct str_view str_view(int off, int len)\n"
+        "struct strview strview(int off, int len)\n"
         "{\n"
-        "    struct str_view sv;\n"
+        "    struct strview sv;\n"
         "    sv.off = off;\n"
         "    sv.len = len;\n"
         "    return sv;\n"
         "}\n\n");
     mstream_cstr(
         ms,
-        "static float str_view_to_float(struct str_view str, const char* "
+        "static float strview_to_float(struct strview str, const char* "
         "data)\n"
         "{\n"
         "    int   begin = str.off;\n"
@@ -1866,7 +1958,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "}\n");
     mstream_cstr(
         ms,
-        "static int str_view_to_integer(struct str_view str, const char* "
+        "static int strview_to_integer(struct strview str, const char* "
         "data)\n"
         "{\n"
         "    int begin = str.off;\n"
@@ -1887,7 +1979,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "}\n");
     mstream_cstr(
         ms,
-        "static char* str_view_dup_cstr(struct str_view str, const char* "
+        "static char* strview_dup_cstr(struct strview str, const char* "
         "data)\n"
         "{\n"
         "    char* cstr = malloc(str.len + 1);\n"
@@ -1899,7 +1991,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "}\n\n");
     mstream_cstr(
         ms,
-        "static int cstr_equal(const char* s1, struct str_view s2, const char* "
+        "static int cstr_equal(const char* s1, struct strview s2, const char* "
         "data)\n"
         "{\n"
         "    if ((int)strlen(s1) != s2.len)\n"
@@ -1930,7 +2022,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "static void print_vflc(\n"
         "    const char*     filename,\n"
         "    const char*     source,\n"
-        "    struct str_view loc,\n"
+        "    struct strview loc,\n"
         "    const char*     fmt,\n"
         "    va_list         ap)\n"
         "{\n"
@@ -1968,14 +2060,14 @@ static void gen_source_ini_parser(struct mstream* ms)
         "}\n\n");
     mstream_cstr(
         ms,
-        "static void print_excerpt(const char* source, struct str_view loc)\n"
+        "static void print_excerpt(const char* source, struct strview loc)\n"
         "{\n"
         "    int             i;\n"
         "    int             l1, c1, l2, c2;\n"
         "    int             indent, max_indent;\n"
         "    int             gutter_indent;\n"
         "    int             line;\n"
-        "    struct str_view block;\n\n");
+        "    struct strview block;\n\n");
     mstream_cstr(
         ms,
         "    /* Calculate line column as well as beginning of block. The goal "
@@ -2143,7 +2235,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "    int         head, tail, end;\n"
         "    union\n"
         "    {\n"
-        "        struct str_view string;\n"
+        "        struct strview string;\n"
         "        double          float_literal;\n"
         "        int64_t         integer_literal;\n"
         "    } value;\n"
@@ -2166,7 +2258,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "...)\n"
         "{\n"
         "    va_list        ap;\n"
-        "    struct str_view loc;\n"
+        "    struct strview loc;\n"
         "    loc.off = p->tail;\n"
         "    loc.len = p->head - p->tail;\n"
         "    va_start(ap, fmt);\n"
@@ -2221,12 +2313,12 @@ static void gen_source_ini_parser(struct mstream* ms)
     mstream_cstr(
         ms,
         "            if (is_float)\n"
-        "                p->value.float_literal = str_view_to_float(\n"
-        "                    str_view(p->tail, p->head - p->tail), "
+        "                p->value.float_literal = strview_to_float(\n"
+        "                    strview(p->tail, p->head - p->tail), "
         "p->source);\n"
         "            else\n"
-        "                p->value.integer_literal = str_view_to_integer(\n"
-        "                    str_view(p->tail, p->head - p->tail), "
+        "                p->value.integer_literal = strview_to_integer(\n"
+        "                    strview(p->tail, p->head - p->tail), "
         "p->source);\n"
         "            return is_float ? TOK_FLOAT : TOK_INTEGER;\n"
         "        }\n\n");
@@ -2245,7 +2337,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "            if (p->head == p->end)\n"
         "                return parser_error(p, \"Missing closing quote on "
         "string\\n\");\n"
-        "            p->value.string = str_view(tail, p->head++ - tail);\n"
+        "            p->value.string = strview(tail, p->head++ - tail);\n"
         "            return TOK_STRING;\n"
         "        }\n\n");
     mstream_cstr(
@@ -2259,7 +2351,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "            {\n"
         "                p->head++;\n"
         "            }\n"
-        "            p->value.string = str_view(p->tail, p->head - p->tail);\n"
+        "            p->value.string = strview(p->tail, p->head - p->tail);\n"
         "            return TOK_KEY;\n"
         "        }\n\n");
     mstream_cstr(
@@ -2269,7 +2361,7 @@ static void gen_source_ini_parser(struct mstream* ms)
         "    }\n"
         "\n"
         "    return TOK_END;\n"
-        "}\n");
+        "}\n\n");
 }
 
 static void gen_source_helpers(struct mstream* ms, const struct root* root)
@@ -2298,7 +2390,10 @@ static void gen_source_helpers(struct mstream* ms, const struct root* root)
 
 static void gen_source_init(struct mstream* ms, const struct section* section)
 {
-    const struct key* key;
+    const struct key*     key;
+    const struct strlist* strlist;
+    int                   i;
+
     mstream_fmt(
         ms,
         "int %S_init(struct %S* s)\n{\n",
@@ -2324,7 +2419,7 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
                     key->name,
                     key->attr.default_value.value.str);
                 mstream_fmt(ms, "    if (s->%S == NULL)\n", key->name);
-                mstream_cstr(ms, "        return -1;\n");
+                mstream_fmt(ms, "        goto %S_failed;\n", key->name);
                 break;
             case CDT_STR_CUSTOM:
                 mstream_fmt(ms, "    str_init(&s.%S);\n", key->name);
@@ -2333,8 +2428,36 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
                     "    if (str_set(&s->%S, \"%S\") != 0)\n",
                     key->name,
                     key->attr.default_value.value.str);
-                mstream_cstr(ms, "        return -1;\n");
+                mstream_fmt(ms, "        goto %S_failed;\n", key->name);
                 break;
+            case CDT_STRLIST_FIXED: break;
+            case CDT_STRLIST_DYNAMIC:
+                strlist = key->attr.default_value.value.strlist;
+                mstream_fmt(
+                    ms,
+                    "    s->%S = malloc(sizeof(char*) * (%d + 1));\n"
+                    "    if (s->%S == NULL)\n"
+                    "        goto %S_failed;\n",
+                    key->name,
+                    ll_count((const struct ll*)strlist),
+                    key->name,
+                    key->name);
+                for (i = 0; strlist; strlist = strlist->next, i++)
+                    mstream_fmt(
+                        ms,
+                        "    s->%S[%d] = portable_strdup(\"%S\");\n"
+                        "    if (s->%S[%d] == NULL)\n"
+                        "        goto %S_%d_failed;\n",
+                        key->name,
+                        i,
+                        strlist->str,
+                        key->name,
+                        i,
+                        key->name,
+                        i);
+                mstream_fmt(ms, "    s->%S[%d] = NULL;\n", key->name, i);
+                break;
+            case CDT_STRLIST_CUSTOM: break;
             case CDT_IBITFIELD:
             case CDT_UBITFIELD: break;
             case CDT_BOOL:
@@ -2359,7 +2482,51 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
                 break;
         }
     }
-    mstream_cstr(ms, "    return 0;\n}\n\n");
+    mstream_cstr(ms, "    return 0;\n\n    ");
+
+    ll_reverse((struct ll**)&section->keys);
+    for (key = section->keys; key; key = key->next)
+    {
+        switch (key->type)
+        {
+            case CDT_UNKNOWN:
+            case CDT_STR_FIXED:
+            case CDT_STR_DYNAMIC:
+                mstream_fmt(
+                    ms, "free(s->%S);\n%S_failed: ", key->name, key->name);
+                break;
+            case CDT_STR_CUSTOM: break;
+            case CDT_STRLIST_FIXED: break;
+            case CDT_STRLIST_DYNAMIC:
+                strlist = key->attr.default_value.value.strlist;
+                for (i = ll_count((const struct ll*)strlist) - 1; strlist;
+                     strlist = strlist->next, i--)
+                    mstream_fmt(
+                        ms,
+                        "free(s->%S[%d]);\n%S_%d_failed: ",
+                        key->name,
+                        i,
+                        key->name,
+                        i);
+                mstream_fmt(
+                    ms, "free(s->%S);\n%S_failed: ", key->name, key->name);
+                break;
+            case CDT_STRLIST_CUSTOM:
+            case CDT_BOOL:
+            case CDT_IBITFIELD:
+            case CDT_UBITFIELD:
+            case CDT_I8:
+            case CDT_U8:
+            case CDT_I16:
+            case CDT_U16:
+            case CDT_I32:
+            case CDT_U32:
+            case CDT_FLOAT: break;
+        }
+    }
+    ll_reverse((struct ll**)&section->keys);
+
+    mstream_cstr(ms, "    return -1;\n}\n\n");
 }
 
 static void gen_source_deinit(struct mstream* ms, const struct section* section)
@@ -2382,6 +2549,9 @@ static void gen_source_deinit(struct mstream* ms, const struct section* section)
             case CDT_STR_CUSTOM:
                 mstream_fmt(ms, "    str_deinit(s->%S);\n", key->name);
                 break;
+            case CDT_STRLIST_FIXED:
+            case CDT_STRLIST_DYNAMIC:
+            case CDT_STRLIST_CUSTOM: break;
             case CDT_IBITFIELD:
             case CDT_UBITFIELD: break;
             case CDT_BOOL:
@@ -2405,21 +2575,40 @@ static void gen_source_fwrite(struct mstream* ms, const struct section* section)
         "int %S_fwrite(const struct %S* s, FILE* f)\n{\n",
         section->struct_name,
         section->struct_name);
+    mstream_cstr(ms, "    char** list; (void)list;\n");
     mstream_fmt(ms, "    fprintf(f, \"[%S]\\n\");\n", section->name);
     for (key = section->keys; key; key = key->next)
     {
-        mstream_fmt(ms, "    fprintf(f, \"%S = ", key->name);
         switch (key->type)
         {
             case CDT_UNKNOWN: break;
             case CDT_STR_FIXED:
             case CDT_STR_DYNAMIC:
-                mstream_fmt(ms, "\\\"%%s\\\"\\n\", s->%S);\n", key->name);
+                mstream_fmt(
+                    ms,
+                    "    fprintf(f, \"%S = \\\"%%s\\\"\\n\", s->%S);\n",
+                    key->name,
+                    key->name);
                 break;
             case CDT_STR_CUSTOM:
                 mstream_fmt(
-                    ms, "\\\"%%s\\\"\\n\", str_cstr(s->%S));\n", key->name);
+                    ms,
+                    "    fprintf(f, \"%S = \\\"%%s\\\"\\n\", "
+                    "str_cstr(s->%S));\n",
+                    key->name,
+                    key->name);
                 break;
+            case CDT_STRLIST_FIXED:
+            case CDT_STRLIST_DYNAMIC:
+                mstream_fmt(
+                    ms, "    for (list = s->%S; *list; ++list)\n", key->name);
+                mstream_fmt(
+                    ms,
+                    "        fprintf(f, \"%S = \\\"%%s\\\"\\n\", s->%S[0]);\n",
+                    key->name,
+                    key->name);
+                break;
+            case CDT_STRLIST_CUSTOM: break;
             case CDT_IBITFIELD:
             case CDT_UBITFIELD: break;
             case CDT_BOOL:
@@ -2429,10 +2618,18 @@ static void gen_source_fwrite(struct mstream* ms, const struct section* section)
             case CDT_U16:
             case CDT_I32:
             case CDT_U32:
-                mstream_fmt(ms, "%%d\\n\", s->%S);\n", key->name);
+                mstream_fmt(
+                    ms,
+                    "    fprintf(f, \"%S = %%d\\n\", s->%S);\n",
+                    key->name,
+                    key->name);
                 break;
             case CDT_FLOAT:
-                mstream_fmt(ms, "%%.9g\\n\", s->%S);\n", key->name);
+                mstream_fmt(
+                    ms,
+                    "    fprintf(f, \"%S = %%.9g\\n\", s->%S);\n",
+                    key->name,
+                    key->name);
                 break;
         }
     }
@@ -2457,7 +2654,7 @@ static void gen_source_parse_key(
         case CDT_STR_FIXED:
             mstream_fmt(
                 ms,
-                "    struct str_view value;\n"
+                "    struct strview value;\n"
                 "    if (scan_next(p) != TOK_STRING)\n"
                 "        return parser_error(p, \"Expected a string literal "
                 "for %S\\n\");\n",
@@ -2497,7 +2694,7 @@ static void gen_source_parse_key(
                 key->name);
             mstream_fmt(
                 ms,
-                "    s->%S = str_view_dup_cstr(p->value.string, p->source);\n"
+                "    s->%S = strview_dup_cstr(p->value.string, p->source);\n"
                 "    if (s->%S == NULL)\n"
                 "        return parser_error(p, \"Failed to allocate memory "
                 "for %S\\n\");\n\n",
@@ -2507,6 +2704,9 @@ static void gen_source_parse_key(
             mstream_cstr(ms, "    return 0;\n");
             break;
         case CDT_STR_CUSTOM: break;
+        case CDT_STRLIST_FIXED:
+        case CDT_STRLIST_DYNAMIC:
+        case CDT_STRLIST_CUSTOM: break;
         case CDT_BOOL: break;
         case CDT_IBITFIELD: break;
         case CDT_UBITFIELD: break;
@@ -2544,7 +2744,7 @@ static void gen_source_parse_key(
         case CDT_FLOAT:
             mstream_fmt(
                 ms,
-                "double value;\n"
+                "    double value;\n"
                 "    enum token tok = scan_next(p);\n"
                 "    if (tok != TOK_FLOAT && tok != TOK_INTEGER)\n"
                 "        return parser_error(\n"
@@ -2591,7 +2791,7 @@ gen_source_parse_section(struct mstream* ms, const struct section* section)
         "%S_parse_section(struct %S* s, struct c_ini_parser* p)\n"
         "{\n"
         "    enum token     tok;\n"
-        "    struct str_view key;\n"
+        "    struct strview key;\n"
         "\n"
         "    while (1)\n"
         "    {\n"
