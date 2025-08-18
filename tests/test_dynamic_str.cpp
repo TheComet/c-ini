@@ -5,57 +5,63 @@
 
 #define NAME dynamic_str
 
-SECTION("dyn")
-struct dyn
+SECTION("dynamic_str")
+struct dynamic_str_struct
 {
-    char* dyn;
+    char* str;
 };
 
 struct NAME : testing::Test
 {
-    void SetUp() override { dyn_init(&s); }
-    void TearDown() override { dyn_deinit(&s); }
+    void SetUp() override { dynamic_str_struct_init(&s); }
+    void TearDown() override { dynamic_str_struct_deinit(&s); }
 
-    struct dyn s;
+    struct dynamic_str_struct s;
 };
 
 using namespace testing;
 
 TEST_F(NAME, simple)
 {
-    const char* ini = "[dyn]\ndyn = \"Hello\"\n";
-    ASSERT_THAT(dyn_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
-    EXPECT_THAT(s.dyn, StrEq("Hello"));
+    const char* ini = "[dynamic_str]\nstr = \"Hello\"\n";
+    ASSERT_THAT(
+        dynamic_str_struct_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
+    ASSERT_THAT(s.str, StrEq("Hello"));
 }
 
 TEST_F(NAME, str_empty)
 {
-    const char* ini = "[dyn]\ndyn = \"\"\n";
-    ASSERT_THAT(dyn_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
-    EXPECT_THAT(s.dyn, StrEq(""));
+    const char* ini = "[dynamic_str]\nstr = \"\"\n";
+    ASSERT_THAT(
+        dynamic_str_struct_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
+    ASSERT_THAT(s.str, StrEq(""));
 }
 
 TEST_F(NAME, missing_string)
 {
-    const char* ini = "[dyn]\n";
-    ASSERT_THAT(dyn_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
-    EXPECT_THAT(s.dyn[0], Eq('\0')); // Should not have changed
+    const char* ini = "[dynamic_str]\n";
+    ASSERT_THAT(
+        dynamic_str_struct_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
+    ASSERT_THAT(s.str[0], Eq('\0')); // Should not have changed
 }
 
 TEST_F(NAME, invalid)
 {
-    const char* ini = "[dyn]\ndyn = \"Invalid string\n";
-    ASSERT_THAT(dyn_parse(&s, "<stdin>", ini, strlen(ini)), Eq(-1));
-    EXPECT_THAT(s.dyn[0], Eq('\0')); // Should not have changed
+    const char* ini = "[dynamic_str]\nstr = \"Invalid string\n";
+    ASSERT_THAT(
+        dynamic_str_struct_parse(&s, "<stdin>", ini, strlen(ini)), Eq(-1));
+    ASSERT_THAT(s.str[0], Eq('\0')); // Should not have changed
 }
 
 TEST_F(NAME, set_str_twice)
 {
-    const char* ini = "[dyn]\ndyn = \"First\"\n";
-    ASSERT_THAT(dyn_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
-    EXPECT_THAT(s.dyn, StrEq("First"));
+    const char* ini = "[dynamic_str]\nstr = \"First\"\n";
+    ASSERT_THAT(
+        dynamic_str_struct_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
+    ASSERT_THAT(s.str, StrEq("First"));
 
-    ini = "[dyn]\ndyn = \"Second\"\n";
-    ASSERT_THAT(dyn_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
-    EXPECT_THAT(s.dyn, StrEq("Second"));
+    ini = "[dynamic_str]\nstr = \"Second\"\n";
+    ASSERT_THAT(
+        dynamic_str_struct_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
+    ASSERT_THAT(s.str, StrEq("Second"));
 }

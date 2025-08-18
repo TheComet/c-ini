@@ -28,6 +28,14 @@ c_ini_generate (
     INPUT "test_dynamic_str.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_dynamic_str.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_dynamic_str.c")
+c_ini_generate (
+    INPUT "test_fixed_strlist.cpp"
+    OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_fixed_strlist.h"
+    OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_fixed_strlist.c")
+c_ini_generate (
+    INPUT "test_dynamic_strlist.cpp"
+    OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_dynamic_strlist.h"
+    OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_dynamic_strlist.c")
 
 add_executable (c_ini_tests
     "test_parse_types.cpp"
@@ -38,7 +46,13 @@ add_executable (c_ini_tests
     "${PROJECT_BINARY_DIR}/test_fixed_str.c"
     "test_dynamic_str.cpp"
     "${PROJECT_BINARY_DIR}/test_dynamic_str.h"
-    "${PROJECT_BINARY_DIR}/test_dynamic_str.c")
+    "${PROJECT_BINARY_DIR}/test_dynamic_str.c"
+    "test_fixed_strlist.cpp"
+    "${PROJECT_BINARY_DIR}/test_fixed_strlist.h"
+    "${PROJECT_BINARY_DIR}/test_fixed_strlist.c"
+    "test_dynamic_strlist.cpp"
+    "${PROJECT_BINARY_DIR}/test_dynamic_strlist.h"
+    "${PROJECT_BINARY_DIR}/test_dynamic_strlist.c")
 target_include_directories (c_ini_tests PRIVATE
     "${PROJECT_BINARY_DIR}")
 target_link_libraries (c_ini_tests PRIVATE
