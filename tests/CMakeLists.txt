@@ -29,6 +29,11 @@ c_ini_generate (
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_dynamic_str.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_dynamic_str.c")
 c_ini_generate (
+    INPUT "test_custom_str.cpp"
+    OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_custom_str.h"
+    OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_custom_str.c"
+    INCLUDE_DIRS "${PROJECT_SOURCE_DIR}")
+c_ini_generate (
     INPUT "test_fixed_strlist.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_fixed_strlist.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_fixed_strlist.c")
@@ -47,6 +52,10 @@ add_executable (c_ini_tests
     "test_dynamic_str.cpp"
     "${PROJECT_BINARY_DIR}/test_dynamic_str.h"
     "${PROJECT_BINARY_DIR}/test_dynamic_str.c"
+    "test_custom_str.cpp"
+    "custom_str.cpp"
+    "${PROJECT_BINARY_DIR}/test_custom_str.h"
+    "${PROJECT_BINARY_DIR}/test_custom_str.c"
     "test_fixed_strlist.cpp"
     "${PROJECT_BINARY_DIR}/test_fixed_strlist.h"
     "${PROJECT_BINARY_DIR}/test_fixed_strlist.c"

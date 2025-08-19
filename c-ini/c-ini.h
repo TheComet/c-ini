@@ -1,6 +1,7 @@
 #pragma once
 
-#define SECTION(x)
-#define DEFAULT(init)
+#define SECTION(name)
+#define DEFAULT(value)
 #define CONSTRAIN(min, max)
 #define IGNORE()
+#define STRING(init, deinit, set, data, len)

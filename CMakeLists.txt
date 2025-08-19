@@ -23,7 +23,7 @@ function (c_ini_generate)
     cmake_parse_arguments (ARG
         ""
         "OUTPUT_HEADER;OUTPUT_SOURCE"
-        "INPUT"
+        "INCLUDE_DIRS;INPUT"
         ${ARGN})
     if (NOT ARG_OUTPUT_HEADER)
         message (FATAL_ERROR "OUTPUT_HEADER argument is required")
@@ -40,18 +40,26 @@ function (c_ini_generate)
         get_filename_component (ABSOLUTE_INPUT_FILE ${INPUT_FILE} ABSOLUTE)
         list (APPEND ABSOLUTE_INPUT_FILES ${ABSOLUTE_INPUT_FILE})
     endforeach ()
+
+    if (ARG_INCLUDE_DIRS)
+        set (INCLUDE_DIRS_ARG --include-dirs)
+    endif ()
     
     add_custom_command (
         OUTPUT ${ARG_OUTPUT_HEADER} ${ARG_OUTPUT_SOURCE}
         COMMAND ${CMAKE_COMMAND}
             -E make_directory ${OUTPUT_HEADER_DIR} ${OUTPUT_SOURCE_DIR}
         COMMAND c_ini_generator
-        ARGS --header ${ARG_OUTPUT_HEADER}
-             --source ${ARG_OUTPUT_SOURCE}
-             --input ${ABSOLUTE_INPUT_FILES}
+        ARGS --input ${ABSOLUTE_INPUT_FILES}
+             ${INCLUDE_DIRS_ARG} ${ARG_INCLUDE_DIRS}
+             --output-header ${ARG_OUTPUT_HEADER}
+             --output-source ${ARG_OUTPUT_SOURCE}
         DEPENDS c_ini_generator ${ABSOLUTE_INPUT_FILES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "--header ${ARG_OUTPUT_HEADER} --source ${ARG_OUTPUT_SOURCE} --input ${ABSOLUTE_INPUT_FILES}"
+        COMMENT "--input ${ABSOLUTE_INPUT_FILES}
+             ${ARG_INCLUDE_DIRS}
+             --output-header ${ARG_OUTPUT_HEADER}
+             --output-source ${ARG_OUTPUT_SOURCE}"
         VERBATIM)
 endfunction ()
 
