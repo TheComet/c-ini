@@ -23,13 +23,16 @@ function (c_ini_generate)
     cmake_parse_arguments (ARG
         ""
         "OUTPUT_HEADER;OUTPUT_SOURCE"
-        "INCLUDE_DIRS;INPUT"
+        "INCLUDE_FILES;INPUT"
         ${ARGN})
     if (NOT ARG_OUTPUT_HEADER)
         message (FATAL_ERROR "OUTPUT_HEADER argument is required")
     endif ()
     if (NOT ARG_OUTPUT_SOURCE)
         message (FATAL_ERROR "OUTPUT_SOURCE argument is required")
+    endif ()
+    if (ARG_UNPARSED_ARGUMENTS)
+        message (FATAL_ERROR "Unrecognized arguments: ${ARG_UNPARSED_ARGUMENTS}")
     endif ()
 
     get_filename_component (OUTPUT_HEADER_DIR ${ARG_OUTPUT_HEADER} DIRECTORY)
@@ -41,8 +44,8 @@ function (c_ini_generate)
         list (APPEND ABSOLUTE_INPUT_FILES ${ABSOLUTE_INPUT_FILE})
     endforeach ()
 
-    if (ARG_INCLUDE_DIRS)
-        set (INCLUDE_DIRS_ARG --include-dirs)
+    if (ARG_INCLUDE_FILES)
+        set (INCLUDE_FILES_ARG --include-files)
     endif ()
     
     add_custom_command (
@@ -51,15 +54,12 @@ function (c_ini_generate)
             -E make_directory ${OUTPUT_HEADER_DIR} ${OUTPUT_SOURCE_DIR}
         COMMAND c_ini_generator
         ARGS --input ${ABSOLUTE_INPUT_FILES}
-             ${INCLUDE_DIRS_ARG} ${ARG_INCLUDE_DIRS}
+             ${INCLUDE_FILES_ARG} ${ARG_INCLUDE_FILES}
              --output-header ${ARG_OUTPUT_HEADER}
              --output-source ${ARG_OUTPUT_SOURCE}
         DEPENDS c_ini_generator ${ABSOLUTE_INPUT_FILES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "--input ${ABSOLUTE_INPUT_FILES}
-             ${ARG_INCLUDE_DIRS}
-             --output-header ${ARG_OUTPUT_HEADER}
-             --output-source ${ARG_OUTPUT_SOURCE}"
+        COMMENT "Generating C-INI source files from ${ARG_INPUT}"
         VERBATIM)
 endfunction ()
 

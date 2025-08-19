@@ -9,12 +9,7 @@
 SECTION("custom_str")
 struct custom_str_struct
 {
-    struct str* str STRING(
-        custom_str_init,
-        custom_str_deinit,
-        custom_str_set,
-        custom_str_data,
-        custom_str_len);
+    struct str* str STRING(custom_str);
 };
 
 struct NAME : public testing::Test

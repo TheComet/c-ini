@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+struct str;
 int         custom_str_init(struct str** str);
 void        custom_str_deinit(struct str* str);
 int         custom_str_set(struct str** str, const char* data, int len);

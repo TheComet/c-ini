@@ -4,4 +4,5 @@
 #define DEFAULT(value)
 #define CONSTRAIN(min, max)
 #define IGNORE()
-#define STRING(init, deinit, set, data, len)
+#define STRING(prefix)
+#define STRINGLIST(prefix)

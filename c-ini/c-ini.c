@@ -839,8 +839,8 @@ struct cfg
     const char* output_source;
     char**      input_fnames;
     int         input_count;
-    char**      include_dirs;
-    int         include_dir_count;
+    char**      include_files;
+    int         include_file_count;
 };
 
 static int print_help(const char* prog_name)
@@ -849,7 +849,7 @@ static int print_help(const char* prog_name)
         stderr,
         "Usage: %s <args>\n"
         "  --input <files...>\n"
-        "  --include-dirs <additional include paths...>\n"
+        "  --include-files <additional files to include...>\n"
         "  --output-header <filename.h>\n"
         "  --output-source <filename.c>\n",
         prog_name);
@@ -865,26 +865,26 @@ static int parse_cmdline(int argc, char** argv, struct cfg* cfg)
             return print_help(argv[0]);
         else if (strcmp(argv[i], "--input") == 0)
         {
-            if (++i >= argc)
+            if (i + 1 >= argc)
                 return print_error(
                     "Missing input filename(s) to option --input\n");
-            cfg->input_fnames = &argv[i];
-            cfg->input_count = 1;
-            while (i < argc - 1 && argv[i][0] != '-')
+            cfg->input_fnames = &argv[i + 1];
+            cfg->input_count = 0;
+            while (i + 1 < argc && argv[i + 1][0] != '-')
                 ++i, ++cfg->input_count;
             if (cfg->input_count == 0)
                 return print_error("No input files specified\n");
         }
-        else if (strcmp(argv[i], "--include-dirs") == 0)
+        else if (strcmp(argv[i], "--include-files") == 0)
         {
-            if (++i >= argc)
+            if (i + 1 >= argc)
                 return print_error(
-                    "Missing include dir(s) to option --include-dirs\n");
-            cfg->include_dirs = &argv[i];
-            cfg->include_dir_count = 1;
-            while (i < argc - 1 && argv[i + 1][0] != '-')
-                ++i, ++cfg->include_dir_count;
-            if (cfg->include_dir_count == 0)
+                    "Missing include dir(s) to option --include-files\n");
+            cfg->include_files = &argv[i + 1];
+            cfg->include_file_count = 0;
+            while (i + 1 < argc && argv[i + 1][0] != '-')
+                ++i, ++cfg->include_file_count;
+            if (cfg->include_file_count == 0)
                 return print_error("No include directories specified\n");
         }
         else if (strcmp(argv[i], "--output-header") == 0)
@@ -1194,19 +1194,12 @@ struct value
     enum value_type type;
 };
 
-struct custom_str
-{
-    struct strview init;
-    struct strview deinit;
-    struct strview set;
-    struct strview data, len;
-};
-
 struct attributes
 {
-    struct value      default_value;
-    struct value      min, max;
-    struct custom_str str_api;
+    struct value   default_value;
+    struct value   min, max;
+    struct strview str_api_prefix;
+    struct strview strlist_api_prefix;
 };
 
 struct key
@@ -1273,20 +1266,12 @@ attributes_set_default_for_type(struct attributes* attr, enum c_data_type type)
         case CDT_STR_FIXED:
             attr->default_value.type = VT_STRING;
             attr->default_value.value.str = empty_strview();
-            attr->str_api.init = cstr_strview("c_str_fixed_init");
-            attr->str_api.deinit = cstr_strview("c_str_fixed_deinit");
-            attr->str_api.set = cstr_strview("c_str_fixed_set");
-            attr->str_api.data = cstr_strview("c_str_data");
-            attr->str_api.len = cstr_strview("c_str_len");
+            attr->str_api_prefix = cstr_strview("c_str_fixed");
             break;
         case CDT_STR_DYNAMIC:
             attr->default_value.type = VT_STRING;
             attr->default_value.value.str = empty_strview();
-            attr->str_api.init = cstr_strview("c_str_dyn_init");
-            attr->str_api.deinit = cstr_strview("c_str_dyn_deinit");
-            attr->str_api.set = cstr_strview("c_str_dyn_set");
-            attr->str_api.data = cstr_strview("c_str_data");
-            attr->str_api.len = cstr_strview("c_str_len");
+            attr->str_api_prefix = cstr_strview("c_str_dyn");
             break;
         case CDT_STR_CUSTOM:
             attr->default_value.type = VT_STRING;
@@ -1294,10 +1279,19 @@ attributes_set_default_for_type(struct attributes* attr, enum c_data_type type)
             /* str_api gets set by the STRING() attribute */
             break;
         case CDT_STRLIST_FIXED:
+            attr->default_value.type = VT_STRLIST;
+            attr->default_value.value.strlist = NULL;
+            attr->str_api_prefix = cstr_strview("c_strlist_fixed");
+            break;
         case CDT_STRLIST_DYNAMIC:
+            attr->default_value.type = VT_STRLIST;
+            attr->default_value.value.strlist = NULL;
+            attr->str_api_prefix = cstr_strview("c_strlist_dyn");
+            break;
         case CDT_STRLIST_CUSTOM:
             attr->default_value.type = VT_STRLIST;
             attr->default_value.value.strlist = NULL;
+            /* str_api gets set by the STRINGLIST() attribute */
             break;
         case CDT_BOOL:
         case CDT_I8:
@@ -1439,6 +1433,38 @@ parse_basic_data_type(struct parser* p, enum token tok, enum c_data_type* type)
     return tok;
 }
 
+static int enforce_constrain_range(
+    const struct parser* p, enum token tok, enum c_data_type type)
+{
+#define CHECK_INT_RANGE(min, max)                                              \
+    if (p->value.integer < min || p->value.integer > max)                      \
+        return parser_error(                                                   \
+            p, "Value in CONSTRAIN() must be in range %d to %d\n", min, max);
+    switch (type)
+    {
+        case CDT_UNKNOWN: return -1;
+        case CDT_STR_FIXED: break;
+        case CDT_STR_DYNAMIC: break;
+        case CDT_STR_CUSTOM: break;
+        case CDT_STRLIST_FIXED: break;
+        case CDT_STRLIST_DYNAMIC: break;
+        case CDT_STRLIST_CUSTOM: break;
+        case CDT_BOOL:
+            if (tok == TOK_INTEGER)
+                CHECK_INT_RANGE(0, 1);
+            break;
+        case CDT_I8: CHECK_INT_RANGE(INT8_MIN, INT8_MAX); break;
+        case CDT_U8: CHECK_INT_RANGE(0, UINT8_MAX); break;
+        case CDT_I16: CHECK_INT_RANGE(INT16_MIN, INT16_MAX); break;
+        case CDT_U16: CHECK_INT_RANGE(0, UINT16_MAX); break;
+        case CDT_I32: CHECK_INT_RANGE(INT32_MIN, INT32_MAX); break;
+        case CDT_U32: CHECK_INT_RANGE(0, UINT32_MAX); break;
+        case CDT_FLOAT: break;
+    }
+#undef CHECK_INT_RANGE
+    return 0;
+}
+
 static enum token parse_attribute_default(
     struct parser* p, enum c_data_type type, struct attributes* attr)
 {
@@ -1535,32 +1561,8 @@ static enum token parse_attribute_default(
             break;
     }
 
-#define CHECK_INT_RANGE(min, max)                                              \
-    if (p->value.integer < min || p->value.integer > max)                      \
-        return parser_error(                                                   \
-            p, "Value in DEFAULT() must be in range %d to %d\n", min, max);
-    switch (type)
-    {
-        case CDT_UNKNOWN: return -1;
-        case CDT_STR_FIXED: break;
-        case CDT_STR_DYNAMIC: break;
-        case CDT_STR_CUSTOM: break;
-        case CDT_STRLIST_FIXED:
-        case CDT_STRLIST_DYNAMIC:
-        case CDT_STRLIST_CUSTOM: break;
-        case CDT_BOOL:
-            if (tok == TOK_INTEGER)
-                CHECK_INT_RANGE(0, 1);
-            break;
-        case CDT_I8: CHECK_INT_RANGE(INT8_MIN, INT8_MAX); break;
-        case CDT_U8: CHECK_INT_RANGE(0, UINT8_MAX); break;
-        case CDT_I16: CHECK_INT_RANGE(INT16_MIN, INT16_MAX); break;
-        case CDT_U16: CHECK_INT_RANGE(0, UINT16_MAX); break;
-        case CDT_I32: CHECK_INT_RANGE(INT32_MIN, INT32_MAX); break;
-        case CDT_U32: CHECK_INT_RANGE(0, UINT32_MAX); break;
-        case CDT_FLOAT: break;
-    }
-#undef CHECK_INT_RANGE
+    if (enforce_constrain_range(p, tok, type) != 0)
+        return -1;
 
     if (scan_next(p) != ')')
         return parser_error(p, "Missing closing ')' after 'DEFAULT'\n");
@@ -1611,36 +1613,6 @@ static int enforce_constrain_type(
     return 0;
 }
 
-static int
-enforce_constrain_range(const struct parser* p, enum c_data_type type)
-{
-#define CHECK_INT_RANGE(type, min, max)                                        \
-    if (p->value.integer < min || p->value.integer > max)                      \
-        return parser_error(                                                   \
-            p, "Value in CONSTRAIN() must be in range %d to %d\n", min, max);
-    switch (type)
-    {
-        case CDT_UNKNOWN: return -1;
-        case CDT_STR_FIXED: break;
-        case CDT_STR_DYNAMIC: break;
-        case CDT_STR_CUSTOM: break;
-        case CDT_STRLIST_FIXED: break;
-        case CDT_STRLIST_DYNAMIC: break;
-        case CDT_STRLIST_CUSTOM: break;
-        case CDT_BOOL: CHECK_INT_RANGE(CDT_BOOL, 0, 1); break;
-        case CDT_I8: CHECK_INT_RANGE(CDT_I8, INT8_MIN, INT8_MAX); break;
-        case CDT_U8: CHECK_INT_RANGE(CDT_U8, 0, UINT8_MAX); break;
-        case CDT_I16: CHECK_INT_RANGE(CDT_I16, INT16_MIN, INT16_MAX); break;
-        case CDT_U16: CHECK_INT_RANGE(CDT_U16, 0, UINT16_MAX); break;
-        case CDT_I32: CHECK_INT_RANGE(CDT_I32, INT32_MIN, INT32_MAX); break;
-        case CDT_U32: CHECK_INT_RANGE(CDT_U32, 0, UINT32_MAX); break;
-        case CDT_FLOAT: break;
-    }
-#undef CHECK_INT_RANGE
-
-    return 0;
-}
-
 static enum token parse_attribute_constrain(
     struct parser* p, enum c_data_type type, struct attributes* attr)
 {
@@ -1652,7 +1624,7 @@ static enum token parse_attribute_constrain(
     tok = scan_next(p);
     if (enforce_constrain_type(p, tok, type) != 0)
         return -1;
-    if (enforce_constrain_range(p, type) != 0)
+    if (enforce_constrain_range(p, tok, type) != 0)
         return -1;
     attr->min.type = VT_INTEGER;
     attr->min.value.integer = p->value.integer;
@@ -1663,7 +1635,7 @@ static enum token parse_attribute_constrain(
     tok = scan_next(p);
     if (enforce_constrain_type(p, tok, type) != 0)
         return -1;
-    if (enforce_constrain_range(p, type) != 0)
+    if (enforce_constrain_range(p, tok, type) != 0)
         return -1;
     attr->max.type = VT_INTEGER;
     attr->max.value.integer = p->value.integer;
@@ -1697,32 +1669,27 @@ static enum token parse_custom_string(struct parser* p, struct attributes* attr)
         return parser_error(p, "Expected '(' after 'STRING'\n");
 
     if (scan_next(p) != TOK_IDENTIFIER)
-        return parser_error(
-            p, "Missing 'init' function callback in custom 'STRING()'\n");
-    attr->str_api.init = p->value.str;
-
-    if (scan_next(p) != ',' || scan_next(p) != TOK_IDENTIFIER)
-        return parser_error(
-            p, "Missing 'deinit' function callback in custom 'STRING()'\n");
-    attr->str_api.deinit = p->value.str;
-
-    if (scan_next(p) != ',' || scan_next(p) != TOK_IDENTIFIER)
-        return parser_error(
-            p, "Missing 'set' function callback in custom 'STRING()'\n");
-    attr->str_api.set = p->value.str;
-
-    if (scan_next(p) != ',' || scan_next(p) != TOK_IDENTIFIER)
-        return parser_error(
-            p, "Missing 'data' function callback in custom 'STRING()'\n");
-    attr->str_api.data = p->value.str;
-
-    if (scan_next(p) != ',' || scan_next(p) != TOK_IDENTIFIER)
-        return parser_error(
-            p, "Missing 'len' function callback in custom 'STRING()'\n");
-    attr->str_api.len = p->value.str;
+        return parser_error(p, "Missing API prefix in 'STRING()'\n");
+    attr->str_api_prefix = p->value.str;
 
     if (scan_next(p) != ')')
-        return parser_error(p, "Missing closing ')' for custom 'STRING()'\n");
+        return parser_error(p, "Missing closing ')' for 'STRING()'\n");
+
+    return scan_next(p);
+}
+
+static enum token
+parse_custom_strlist(struct parser* p, struct attributes* attr)
+{
+    if (scan_next(p) != '(')
+        return parser_error(p, "Expected '(' after 'STRINGLIST'\n");
+
+    if (scan_next(p) != TOK_IDENTIFIER)
+        return parser_error(p, "Missing API prefix in 'STRINGLIST()'\n");
+    attr->strlist_api_prefix = p->value.str;
+
+    if (scan_next(p) != ')')
+        return parser_error(p, "Missing closing ')' for 'STRINGLIST()'\n");
 
     return scan_next(p);
 }
@@ -1743,6 +1710,8 @@ static enum token parse_attributes(
             tok = parse_attribute_ignore(p, key);
         else if (cstr_equal("STRING", p->value.str))
             tok = parse_custom_string(p, &(*key)->attr);
+        else if (cstr_equal("STRINGLIST", p->value.str))
+            tok = parse_custom_strlist(p, &(*key)->attr);
         else
             return parser_error(
                 p,
@@ -1868,6 +1837,19 @@ static enum token parse_struct_unknown_data_type(
             key = key_create(section, key_name, CDT_STR_CUSTOM);
             attributes_set_default_for_type(&key->attr, CDT_STR_CUSTOM);
             return parse_attributes(p, tok, CDT_STR_CUSTOM, &key);
+        }
+        else if (
+            tok == TOK_IDENTIFIER && cstr_equal("STRINGLIST", p->value.str))
+        {
+            if (key_name.len == 0)
+                return parser_error(
+                    p,
+                    "Can't create key because we failed to parse the name of "
+                    "the variable. May have to use a less complex type, or "
+                    "submit a bug report.\n");
+            key = key_create(section, key_name, CDT_STRLIST_CUSTOM);
+            attributes_set_default_for_type(&key->attr, CDT_STRLIST_CUSTOM);
+            return parse_attributes(p, tok, CDT_STRLIST_CUSTOM, &key);
         }
         else if (tok == ';' || tok == ',')
         {
@@ -2052,8 +2034,12 @@ static void gen_source_includes(struct mstream* ms, const struct cfg* cfg)
     for (i = 0; i != cfg->input_count; ++i)
         if (!file_is_source_file(cfg->input_fnames[i]))
             mstream_fmt(ms, "#include \"%s\"\n", cfg->input_fnames[i]);
+
     if (cfg->output_header != NULL)
         mstream_fmt(ms, "#include \"%s\"\n", cfg->output_header);
+
+    for (i = 0; i != cfg->include_file_count; ++i)
+        mstream_fmt(ms, "#include \"%s\"\n", cfg->include_files[i]);
 
     mstream_cstr(ms, "#include \"c-ini.h\"\n");
     mstream_cstr(ms, "#include <stdlib.h>\n");
@@ -2566,8 +2552,11 @@ static void gen_source_helpers(struct mstream* ms, const struct root* root)
     mstream_cstr(
         ms,
         "static int c_str_dyn_init(char** s)\n{    \n"
-        "    *s = portable_strdup(\"\");\n"
-        "    return *s == NULL ? -1 : 0;\n"
+        "    *s = malloc(1);\n"
+        "    if (*s == NULL)\n"
+        "        return -1;\n"
+        "    (*s)[0] = '\\0';\n"
+        "    return 0;\n"
         "}\n\n");
     mstream_cstr(
         ms,
@@ -2587,12 +2576,14 @@ static void gen_source_helpers(struct mstream* ms, const struct root* root)
         "}\n\n");
     mstream_cstr(
         ms,
-        "static const char* c_str_data(const char* s)\n    {\n"
+        "static const char* c_str_dyn_data(const char* s)\n{\n"
         "    return s;\n"
         "}\n\n");
     mstream_cstr(
         ms,
-        "static int c_str_len(const char* s) { return (int)strlen(s); }\n\n");
+        "static int c_str_dyn_len(const char* s)\n{\n"
+        "    return (int)strlen(s);\n"
+        "}\n\n");
 }
 
 static void gen_source_init(struct mstream* ms, const struct section* section)
@@ -2623,51 +2614,46 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
             case CDT_STR_CUSTOM:
                 mstream_fmt(
                     ms,
-                    "    if (%S(&s->%S) != 0)\n"
+                    "    if (%S_init(&s->%S) != 0)\n"
                     "        goto %S_failed;\n",
-                    key->attr.str_api.init,
+                    key->attr.str_api_prefix,
                     key->name,
                     key->name);
                 if (key->attr.default_value.value.str.len > 0)
                 {
                     mstream_fmt(
                         ms,
-                        "    if (%S(&s->%S, \"%S\", %d) != 0)\n",
-                        key->attr.str_api.set,
+                        "    if (%S_set(&s->%S, \"%S\", %d) != 0)\n"
+                        "        goto %S_failed;\n",
+                        key->attr.str_api_prefix,
                         key->name,
                         key->attr.default_value.value.str,
-                        key->attr.default_value.value.str.len);
-                    mstream_fmt(ms, "        goto %S_failed;\n", key->name);
+                        key->attr.default_value.value.str.len,
+                        key->name);
                 }
                 break;
             case CDT_STRLIST_FIXED: break;
             case CDT_STRLIST_DYNAMIC:
+            case CDT_STRLIST_CUSTOM:
                 strlist = key->attr.default_value.value.strlist;
                 mstream_fmt(
                     ms,
-                    "    s->%S = malloc(sizeof(char*) * (%d + 1));\n"
-                    "    if (s->%S == NULL)\n"
+                    "    if (%S_init(&s->%S) != 0)\n"
                     "        goto %S_failed;\n",
-                    key->name,
-                    ll_count((const struct ll*)strlist),
+                    key->attr.strlist_api_prefix,
                     key->name,
                     key->name);
                 for (i = 0; strlist; strlist = strlist->next, i++)
                     mstream_fmt(
                         ms,
-                        "    s->%S[%d] = portable_strdup(\"%S\");\n"
-                        "    if (s->%S[%d] == NULL)\n"
-                        "        goto %S_%d_failed;\n",
+                        "    if (%S_add(&s->%S, \"%S\", %d) != 0)\n"
+                        "        goto %S_add_failed;\n",
+                        key->attr.strlist_api_prefix,
                         key->name,
-                        i,
                         strlist->str,
-                        key->name,
                         i,
-                        key->name,
-                        i);
-                mstream_fmt(ms, "    s->%S[%d] = NULL;\n", key->name, i);
+                        key->name);
                 break;
-            case CDT_STRLIST_CUSTOM: break;
             case CDT_BOOL:
             case CDT_I8:
             case CDT_U8:
@@ -2705,26 +2691,22 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
                 if (not_first++)
                     mstream_fmt(
                         ms,
-                        "%S(s->%S);\n    ",
-                        key->attr.str_api.deinit,
+                        "%S_deinit(s->%S);\n    ",
+                        key->attr.str_api_prefix,
                         key->name);
                 mstream_fmt(ms, "%S_failed: ", key->name);
                 break;
-            case CDT_STRLIST_FIXED: break;
+            case CDT_STRLIST_FIXED:
             case CDT_STRLIST_DYNAMIC:
-                strlist = key->attr.default_value.value.strlist;
-                for (i = ll_count((const struct ll*)strlist) - 1; strlist;
-                     strlist = strlist->next, i--)
-                {
-                    if (not_first++)
-                        mstream_fmt(ms, "free(s->%S[%d]);\n    ", key->name, i);
-                    mstream_fmt(ms, "%S_%d_failed: ", key->name, i);
-                }
+            case CDT_STRLIST_CUSTOM:
                 if (not_first++)
-                    mstream_fmt(ms, "free(s->%S);\n    ", key->name);
+                    mstream_fmt(
+                        ms,
+                        "%S_deinit(s->%S);\n    ",
+                        key->attr.strlist_api_prefix,
+                        key->name);
                 mstream_fmt(ms, "%S_failed: ", key->name);
                 break;
-            case CDT_STRLIST_CUSTOM:
             case CDT_BOOL:
             case CDT_I8:
             case CDT_U8:
@@ -2743,9 +2725,6 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
 static void gen_source_deinit(struct mstream* ms, const struct section* section)
 {
     const struct key* key;
-    struct strlist*   strlist;
-    int               i;
-
     mstream_fmt(
         ms,
         "void %S_deinit(struct %S* s)\n{\n",
@@ -2761,17 +2740,19 @@ static void gen_source_deinit(struct mstream* ms, const struct section* section)
             case CDT_STR_CUSTOM:
                 mstream_fmt(
                     ms,
-                    "    %S(s->%S);\n",
-                    key->attr.str_api.deinit,
+                    "    %S_deinit(s->%S);\n",
+                    key->attr.str_api_prefix,
                     key->name);
                 break;
             case CDT_STRLIST_FIXED: break;
             case CDT_STRLIST_DYNAMIC:
-                strlist = key->attr.default_value.value.strlist;
-                for (i = 0; strlist; strlist = strlist->next, i++)
-                    mstream_fmt(ms, "    free(s->%S[%d]);\n", key->name, i);
-                mstream_fmt(ms, "    free(s->%S);\n", key->name);
-            case CDT_STRLIST_CUSTOM: break;
+            case CDT_STRLIST_CUSTOM:
+                mstream_fmt(
+                    ms,
+                    "    %S_deinit(s->%S);\n",
+                    key->attr.strlist_api_prefix,
+                    key->name);
+                break;
             case CDT_BOOL:
             case CDT_I8:
             case CDT_U8:
@@ -2814,11 +2795,11 @@ static void gen_source_fwrite(struct mstream* ms, const struct section* section)
                 mstream_fmt(
                     ms,
                     "    fprintf(f, \"%S = \\\"%%.*s\\\"\\n\", "
-                    "%S(s->%S), %S(s->%S));\n",
+                    "%S_len(s->%S), %S_data(s->%S));\n",
                     key->name,
-                    key->attr.str_api.len,
+                    key->attr.str_api_prefix,
                     key->name,
-                    key->attr.str_api.data,
+                    key->attr.str_api_prefix,
                     key->name);
                 break;
             case CDT_STRLIST_FIXED:
@@ -2940,11 +2921,11 @@ static void gen_source_parse_key(
                 key->name);
             mstream_fmt(
                 ms,
-                "    if (%S(&s->%S, p->source + p->value.string.off, "
+                "    if (%S_set(&s->%S, p->source + p->value.string.off, "
                 "p->value.string.len) != 0)\n"
                 "        return TOK_ERROR;\n\n"
                 "    return scan_next(p);\n",
-                key->attr.str_api.set,
+                key->attr.str_api_prefix,
                 key->name);
             break;
         case CDT_STRLIST_FIXED:
