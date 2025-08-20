@@ -37,7 +37,9 @@ This    makes    the     struct     visible     to    the    code    generator.
 ```player_data_ini_parser.h``` is the generated header file. This declares some
 functions  used  to  load  and  save  the  struct  to  and  from  an INI  file.
 
-## With CMake
+## Building
+
+### With CMake
 
 If  you  are  using  a  CMake  project,  simply  ```add_subdirectory()```  this
 repository. This will give you a new CMake function:
@@ -62,7 +64,7 @@ You can specify as many input files  as  you want. They can be header or source
 files. The  code  generator  will scan each input file and create functions for
 every struct it finds.
 
-## Use directly
+### Use directly
 
 If you are not using CMake, no worries. The code generator consists of a single
 C source file, which you can compile with:
@@ -92,6 +94,8 @@ gcc -o application parser.o main.o
 
 ## Advanced Features
 
+### Default values and constraints
+
 You can optionally add default values and constraints to each member:
 
 ```c
@@ -108,3 +112,55 @@ struct player_data
 
 ```CONSTRAIN()``` adds  checks  to the ```_parse()``` function. If the INI file
 contains  a  value  outside  of  the  constrained  range,  then it will  error.
+
+### Strings
+
+The  generator  comes with a default implementation  for  strings  which  calls
+```malloc()``` every time an attribute is set. You might not want  this. If you
+want  to use your own string type, you can implement the  following  functions:
+
+```c
+struct my_str {
+    int len;
+    char data[];
+};
+
+int custom_str_init(struct my_str** str) {
+    *str = NULL;
+    return 0;  /* success. -1 for failure */
+}
+
+void custom_str_deinit(struct my_str* str) {
+    if (str)
+        free(str);
+}
+
+int custom_str_set(struct my_str** str, const char* data, int len) {
+    *str = malloc(len + sizeof(int));
+    memcpy(str->data, data, len);
+    str->len = len;
+    return 0;  /* success. -1 for failure */
+}
+
+const char* custom_str_data(const struct my_str* str) {
+    return str->data;
+}
+
+int custom_str_len(const struct my_str* str) {
+    return str->len;
+}
+```
+
+Now you can use the ```STRING()``` attribute to tell the generator to call your
+functions instead. The argument is the prefix of the functions to call:
+
+```c
+SECTION("player")
+struct player_data
+{
+    char* name STRING(custom_str);
+    int health;
+    float x, y, z;
+};
+```
+
