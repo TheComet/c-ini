@@ -1041,9 +1041,13 @@ enum token scan_next(struct parser* p)
         CHAR_TOKEN_LIST
 #undef X
 
-        /* Integer literal [0-9]+ */
-        if (isdigit(p->data[p->head]))
+        /* Number */
+        if (isdigit(p->data[p->head]) || p->data[p->head] == '-')
         {
+            char is_neg = p->data[p->head] == '-';
+            if (p->data[p->head] == '-')
+                p->head++;
+
             p->value.integer = 0;
             for (; p->head != p->end && isdigit(p->data[p->head]); ++p->head)
             {
@@ -1064,8 +1068,14 @@ enum token scan_next(struct parser* p)
                 }
                 if (p->head != p->end && p->data[p->head] == 'f')
                     ++p->head;
+
+                if (is_neg)
+                    p->value.floating = -p->value.floating;
                 return TOK_FLOAT;
             }
+
+            if (is_neg)
+                p->value.integer = -p->value.integer;
             return TOK_INTEGER;
         }
 
@@ -1120,14 +1130,6 @@ static void ll_append(struct ll** head, struct ll* node)
 static void ll_remove(struct ll** node)
 {
     *node = (*node)->next;
-}
-
-static int ll_count(const struct ll* head)
-{
-    int count = 0;
-    while (head)
-        ++count, head = head->next;
-    return count;
 }
 
 static void ll_reverse(struct ll** head)
@@ -1281,12 +1283,12 @@ attributes_set_default_for_type(struct attributes* attr, enum c_data_type type)
         case CDT_STRLIST_FIXED:
             attr->default_value.type = VT_STRLIST;
             attr->default_value.value.strlist = NULL;
-            attr->str_api_prefix = cstr_strview("c_strlist_fixed");
+            attr->strlist_api_prefix = cstr_strview("c_strlist_fixed");
             break;
         case CDT_STRLIST_DYNAMIC:
             attr->default_value.type = VT_STRLIST;
             attr->default_value.value.strlist = NULL;
-            attr->str_api_prefix = cstr_strview("c_strlist_dyn");
+            attr->strlist_api_prefix = cstr_strview("c_strlist_dyn");
             break;
         case CDT_STRLIST_CUSTOM:
             attr->default_value.type = VT_STRLIST;
@@ -2069,63 +2071,6 @@ static void gen_source_ini_parser(struct mstream* ms)
         "}\n\n");
     mstream_cstr(
         ms,
-        "static double strview_to_float(struct strview str, const char* "
-        "data)\n"
-        "{\n"
-        "    int   begin = str.off;\n"
-        "    int   end = str.off + str.len;\n"
-        "    int   sign = 1.0f;\n"
-        "    double val = 0.0f;\n"
-        "    double scale = 1.0;\n"
-        "\n"
-        "    if (begin > 0 && data[begin] == '-')\n"
-        "    {\n"
-        "        begin++;\n"
-        "        sign = -1.0f;\n"
-        "    }\n\n");
-    mstream_cstr(
-        ms,
-        "    for (; begin != end; begin++)\n"
-        "    {\n"
-        "        if (data[begin] == '.')\n"
-        "        {\n"
-        "            begin++;\n"
-        "            break;\n"
-        "        }\n"
-        "        val = val * 10.0 + (data[begin] - '0');\n"
-        "    }\n"
-        "\n"
-        "    for (; begin != end; begin++)\n"
-        "    {\n"
-        "        scale = scale / 10;\n"
-        "        val = val + (data[begin] - '0') * scale;\n"
-        "    }\n"
-        "\n"
-        "    return sign * val;\n"
-        "}\n");
-    mstream_cstr(
-        ms,
-        "static int strview_to_integer(struct strview str, const char* "
-        "data)\n"
-        "{\n"
-        "    int begin = str.off;\n"
-        "    int end = str.off + str.len;\n"
-        "    int result = 0;\n"
-        "    int sign = 1;\n"
-        "\n"
-        "    if (begin > 0 && data[begin] == '-')\n"
-        "    {\n"
-        "        begin++;\n"
-        "        sign = -1;\n"
-        "    }\n"
-        "\n"
-        "    for (; begin != end; begin++)\n"
-        "        result = result * 10 + (data[begin] - '0');\n"
-        "\n"
-        "    return sign * result;\n"
-        "}\n");
-    mstream_cstr(
-        ms,
         "static int cstr_equal(const char* s1, struct strview s2, const char* "
         "data)\n"
         "{\n"
@@ -2461,28 +2406,53 @@ static void gen_source_ini_parser(struct mstream* ms)
         "        if (isdigit(p->source[p->head]) || p->source[p->head] == "
         "'-')\n"
         "        {\n"
-        "            char is_float = 0;\n"
-        "            while (p->head != p->end &&\n"
-        "                   (isdigit(p->source[p->head])\n"
-        "                    || p->source[p->head] == '-'\n"
-        "                    || p->source[p->head] == '.'))\n"
-        "            {\n"
-        "                if (p->source[p->head] == '.')\n"
-        "                    is_float = 1;\n"
-        "                p->head++;\n"
-        "            }\n\n");
+        "            char is_neg = p->source[p->head] == '-';\n"
+        "            if (p->source[p->head] == '-')\n"
+        "                p->head++;\n\n");
     mstream_cstr(
         ms,
-        "            if (is_float)\n"
-        "                p->value.float_literal = strview_to_float(\n"
-        "                    strview(p->tail, p->head - p->tail), "
-        "p->source);\n"
-        "            else\n"
-        "                p->value.integer_literal = strview_to_integer(\n"
-        "                    strview(p->tail, p->head - p->tail), "
-        "p->source);\n"
-        "            return is_float ? TOK_FLOAT : TOK_INTEGER;\n"
-        "        }\n\n");
+        "            p->value.integer_literal = 0;\n"
+        "            for (; p->head != p->end && isdigit(p->source[p->head]); "
+        "++p->head)\n"
+        "            {\n"
+        "                p->value.integer_literal *= 10;\n"
+        "                p->value.integer_literal += p->source[p->head] - "
+        "'0';\n"
+        "            }\n");
+    mstream_cstr(
+        ms,
+        "            /* It is actually a float */\n"
+        "            if (p->head != p->end && p->source[p->head] == '.')\n"
+        "            {\n"
+        "                double fraction = 1.0;\n"
+        "                p->value.float_literal = "
+        "(double)p->value.integer_literal;\n"
+        "                for (p->head++; p->head != p->end && "
+        "isdigit(p->source[p->head]);\n"
+        "                     ++p->head)\n");
+    mstream_cstr(
+        ms,
+        "                {\n"
+        "                    fraction *= 0.1;\n"
+        "                    p->value.float_literal +=\n"
+        "                        fraction * (double)(p->source[p->head] - "
+        "'0');\n"
+        "                }\n"
+        "                if (p->head != p->end && p->source[p->head] == 'f')\n"
+        "                    ++p->head;\n\n");
+    mstream_cstr(
+        ms,
+        "                if (is_neg)\n"
+        "                    p->value.float_literal = "
+        "-p->value.float_literal;\n"
+        "                return TOK_FLOAT;\n"
+        "            }\n"
+        "\n"
+        "            if (is_neg)\n"
+        "                p->value.integer_literal = "
+        "-p->value.integer_literal;\n"
+        "            return TOK_INTEGER;\n"
+        "        }\n");
     mstream_cstr(
         ms,
         "        /* String literal \".*?\" (spans over newlines)*/\n"
@@ -2528,16 +2498,6 @@ static void gen_source_ini_parser(struct mstream* ms)
 static void gen_source_helpers(struct mstream* ms, const struct root* root)
 {
     struct section* section;
-    mstream_cstr(
-        ms,
-        "static char* portable_strdup(const char* str)\n"
-        "{\n"
-        "    char* copy = malloc(strlen(str) + 1);\n"
-        "    if (copy == NULL)\n"
-        "        return NULL;\n"
-        "    strcpy(copy, str);\n"
-        "    return copy;\n"
-        "}\n\n");
 
     /* May need to copy the entire struct definition into the source file, if
      * the struct was originally defined in a source file */
@@ -2584,13 +2544,60 @@ static void gen_source_helpers(struct mstream* ms, const struct root* root)
         "static int c_str_dyn_len(const char* s)\n{\n"
         "    return (int)strlen(s);\n"
         "}\n\n");
+
+    /* Built-in "custom stringlist" functions for C-strings */
+    mstream_cstr(
+        ms,
+        "static int c_strlist_dyn_init(char*** l)\n{    \n"
+        "    *l = malloc(sizeof(char**));\n"
+        "    if (*l == NULL)\n"
+        "        return -1;\n"
+        "    (*l)[0] = NULL;\n"
+        "    return 0;\n"
+        "}\n\n");
+    mstream_cstr(
+        ms,
+        "static void c_strlist_dyn_deinit(char** l)\n{    \n"
+        "    char** p;\n"
+        "    for (p = l; *p; ++p)\n"
+        "        free(*p);\n"
+        "    free(l);\n"
+        "}\n\n");
+    mstream_cstr(
+        ms,
+        "static int c_strlist_dyn_add(char*** l, const char* data, int "
+        "len)\n{\n"
+        "    char** p;\n"
+        "    int list_len = 0;\n"
+        "    for (p = *l; *p; ++p)\n"
+        "        list_len++;\n"
+        "    p = realloc(*l, sizeof(char**) * (list_len + 2));\n"
+        "    if (p == NULL)\n"
+        "        return -1;\n"
+        "    *l = p;\n"
+        "    p[list_len + 1] = NULL;\n"
+        "    p[list_len] = malloc(len + 1);\n"
+        "    if (p[list_len] == NULL)\n"
+        "        return -1;\n"
+        "    memcpy(p[list_len], data, len);\n"
+        "    p[list_len][len] = '\\0';\n"
+        "    return 0;\n"
+        "}\n\n");
+    mstream_cstr(
+        ms,
+        "static void c_strlist_dyn_clear(char** l)\n{\n"
+        "    char** p;\n"
+        "    for (p = l; *p; ++p)\n"
+        "        free(*p);\n"
+        "    l[0] = NULL;\n"
+        "}\n\n");
 }
 
 static void gen_source_init(struct mstream* ms, const struct section* section)
 {
     const struct key*     key;
     const struct strlist* strlist;
-    int                   i, not_first;
+    int                   i;
 
     mstream_fmt(
         ms,
@@ -2624,7 +2631,7 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
                     mstream_fmt(
                         ms,
                         "    if (%S_set(&s->%S, \"%S\", %d) != 0)\n"
-                        "        goto %S_failed;\n",
+                        "        goto %S_set_failed;\n",
                         key->attr.str_api_prefix,
                         key->name,
                         key->attr.default_value.value.str,
@@ -2632,7 +2639,16 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
                         key->name);
                 }
                 break;
-            case CDT_STRLIST_FIXED: break;
+            case CDT_STRLIST_FIXED:
+                strlist = key->attr.default_value.value.strlist;
+                for (i = 0; strlist; strlist = strlist->next, i++)
+                    mstream_fmt(
+                        ms,
+                        "    strcpy(s->%S[%d], \"%S\");\n",
+                        key->name,
+                        i,
+                        strlist->str);
+                break;
             case CDT_STRLIST_DYNAMIC:
             case CDT_STRLIST_CUSTOM:
                 strlist = key->attr.default_value.value.strlist;
@@ -2646,12 +2662,13 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
                 for (i = 0; strlist; strlist = strlist->next, i++)
                     mstream_fmt(
                         ms,
-                        "    if (%S_add(&s->%S, \"%S\", %d) != 0)\n"
+                        "    if (%S_add(&s->%S, \"%S\", (int)sizeof(\"%S\") - "
+                        "1) != 0)\n"
                         "        goto %S_add_failed;\n",
                         key->attr.strlist_api_prefix,
                         key->name,
                         strlist->str,
-                        i,
+                        strlist->str,
                         key->name);
                 break;
             case CDT_BOOL:
@@ -2679,7 +2696,6 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
     mstream_cstr(ms, "    return 0;\n\n    ");
 
     ll_reverse((struct ll**)&section->keys);
-    not_first = 0;
     for (key = section->keys; key; key = key->next)
     {
         switch (key->type)
@@ -2688,23 +2704,26 @@ static void gen_source_init(struct mstream* ms, const struct section* section)
             case CDT_STR_FIXED: break;
             case CDT_STR_DYNAMIC:
             case CDT_STR_CUSTOM:
-                if (not_first++)
-                    mstream_fmt(
-                        ms,
-                        "%S_deinit(s->%S);\n    ",
-                        key->attr.str_api_prefix,
-                        key->name);
+                if (key->attr.default_value.value.str.len > 0)
+                    mstream_fmt(ms, "%S_set_failed: ", key->name);
+                mstream_fmt(
+                    ms,
+                    "%S_deinit(s->%S);\n    ",
+                    key->attr.str_api_prefix,
+                    key->name);
                 mstream_fmt(ms, "%S_failed: ", key->name);
                 break;
-            case CDT_STRLIST_FIXED:
+            case CDT_STRLIST_FIXED: break;
             case CDT_STRLIST_DYNAMIC:
             case CDT_STRLIST_CUSTOM:
-                if (not_first++)
-                    mstream_fmt(
-                        ms,
-                        "%S_deinit(s->%S);\n    ",
-                        key->attr.strlist_api_prefix,
-                        key->name);
+                strlist = key->attr.default_value.value.strlist;
+                if (strlist != NULL)
+                    mstream_fmt(ms, "%S_add_failed: ", key->name);
+                mstream_fmt(
+                    ms,
+                    "%S_deinit(s->%S);\n    ",
+                    key->attr.strlist_api_prefix,
+                    key->name);
                 mstream_fmt(ms, "%S_failed: ", key->name);
                 break;
             case CDT_BOOL:
@@ -2929,7 +2948,7 @@ static void gen_source_parse_key(
                 key->name);
             break;
         case CDT_STRLIST_FIXED:
-            mstream_cstr(
+            mstream_fmt(
                 ms,
                 "    enum token tok;\n"
                 "    int        i = 0;\n"
@@ -2937,7 +2956,8 @@ static void gen_source_parse_key(
                 "    {\n"
                 "        if (scan_next(p) != TOK_STRING)\n"
                 "            return parser_error(p,"
-                "\"Expected a string literal for friends\\n\");\n\n");
+                "\"Expected a string literal for %S\\n\");\n\n",
+                key->name);
             mstream_fmt(
                 ms,
                 "        if (p->value.string.len > (int)sizeof(*s->%S))\n"
@@ -2981,7 +3001,34 @@ static void gen_source_parse_key(
                 key->name);
             break;
         case CDT_STRLIST_DYNAMIC:
-        case CDT_STRLIST_CUSTOM: break;
+        case CDT_STRLIST_CUSTOM:
+            mstream_fmt(
+                ms,
+                "    enum token tok;\n"
+                "    %S_clear(s->%S);\n",
+                key->attr.strlist_api_prefix);
+            mstream_fmt(
+                ms,
+                "    while (1)\n"
+                "    {\n"
+                "        if (scan_next(p) != TOK_STRING)\n"
+                "            return parser_error(p,"
+                "\"Expected a string literal for %S\\n\");\n\n",
+                key->name);
+            mstream_fmt(
+                ms,
+                "        if (%S_add(&s->%S, p->source + p->value.string.off, "
+                "p->value.string.len) != 0)\n"
+                "            return -1;\n",
+                key->attr.strlist_api_prefix);
+            mstream_cstr(
+                ms,
+                "        tok = scan_next(p);\n"
+                "        if (tok != ',')\n"
+                "            break;\n"
+                "    }\n\n"
+                "    return tok;\n");
+            break;
         case CDT_BOOL:
         case CDT_I8:
         case CDT_U8:

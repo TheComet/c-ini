@@ -23,7 +23,6 @@ using namespace testing;
 
 TEST_F(NAME, init_sets_all_to_null)
 {
-    dynamic_strlist_struct_init(&s);
     ASSERT_THAT(s.strlist[0], IsNull());
 }
 
@@ -45,7 +44,7 @@ TEST_F(NAME, str_empty)
     ASSERT_THAT(
         dynamic_strlist_struct_parse(&s, "<stdin>", ini, strlen(ini)), Eq(0));
     ASSERT_THAT(s.strlist[0], StrEq(""));
-    ASSERT_THAT(s.strlist[0], IsNull());
+    ASSERT_THAT(s.strlist[1], IsNull());
 }
 
 TEST_F(NAME, missing_string)
