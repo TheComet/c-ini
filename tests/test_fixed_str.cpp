@@ -1,4 +1,3 @@
-#include "c-ini.h"
 #include "test_fixed_str.h"
 
 #include "gmock/gmock.h"

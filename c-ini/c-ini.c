@@ -1971,6 +1971,7 @@ static void gen_header(struct mstream* ms, const struct root* root)
     const struct section* section;
     mstream_cstr(ms, "#pragma once\n\n");
 
+    mstream_cstr(ms, "#include \"c-ini.h\"\n");
     mstream_cstr(ms, "#include <stdio.h>\n");
     mstream_cstr(ms, "#include <stdint.h>\n\n");
 
@@ -2043,7 +2044,6 @@ static void gen_source_includes(struct mstream* ms, const struct cfg* cfg)
     for (i = 0; i != cfg->include_file_count; ++i)
         mstream_fmt(ms, "#include \"%s\"\n", cfg->include_files[i]);
 
-    mstream_cstr(ms, "#include \"c-ini.h\"\n");
     mstream_cstr(ms, "#include <stdlib.h>\n");
     mstream_cstr(ms, "#include <ctype.h>\n");
     mstream_cstr(ms, "#include <string.h>\n");
@@ -2495,19 +2495,8 @@ static void gen_source_ini_parser(struct mstream* ms)
         "}\n\n");
 }
 
-static void gen_source_helpers(struct mstream* ms, const struct root* root)
+static void gen_source_c_str_dyn(struct mstream* ms)
 {
-    struct section* section;
-
-    /* May need to copy the entire struct definition into the source file, if
-     * the struct was originally defined in a source file */
-    for (section = root->sections; section; section = section->next)
-    {
-        if (section->struct_def.len == 0)
-            continue;
-        mstream_fmt(ms, "%S;\n\n", section->struct_def);
-    }
-
     /* Built-in "custom string" functions for C-strings */
     mstream_cstr(
         ms,
@@ -2544,7 +2533,10 @@ static void gen_source_helpers(struct mstream* ms, const struct root* root)
         "static int c_str_dyn_len(const char* s)\n{\n"
         "    return (int)strlen(s);\n"
         "}\n\n");
+}
 
+static void gen_source_c_strlist_dyn(struct mstream* ms)
+{
     /* Built-in "custom stringlist" functions for C-strings */
     mstream_cstr(
         ms,
@@ -2591,6 +2583,40 @@ static void gen_source_helpers(struct mstream* ms, const struct root* root)
         "        free(*p);\n"
         "    l[0] = NULL;\n"
         "}\n\n");
+}
+
+static void gen_source_helpers(struct mstream* ms, const struct root* root)
+{
+    const struct section* section;
+    const struct key*     key;
+
+    /* May need to copy the entire struct definition into the source file, if
+     * the struct was originally defined in a source file */
+    for (section = root->sections; section; section = section->next)
+    {
+        if (section->struct_def.len == 0)
+            continue;
+        mstream_fmt(ms, "%S;\n\n", section->struct_def);
+    }
+
+    for (section = root->sections; section; section = section->next)
+        for (key = section->keys; key; key = key->next)
+            if (key->type == CDT_STR_DYNAMIC || key->type == CDT_STR_CUSTOM)
+            {
+                gen_source_c_str_dyn(ms);
+                goto found_str_dynamic;
+            }
+found_str_dynamic:;
+
+    for (section = root->sections; section; section = section->next)
+        for (key = section->keys; key; key = key->next)
+            if (key->type == CDT_STRLIST_DYNAMIC ||
+                key->type == CDT_STRLIST_CUSTOM)
+            {
+                gen_source_c_strlist_dyn(ms);
+                goto found_strlist_dynamic;
+            }
+found_strlist_dynamic:;
 }
 
 static void gen_source_init(struct mstream* ms, const struct section* section)

@@ -1,4 +1,3 @@
-#include "c-ini.h"
 #include "test_dynamic_strlist.h"
 
 #include "gmock/gmock.h"

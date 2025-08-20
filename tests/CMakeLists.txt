@@ -16,36 +16,36 @@ FetchContent_Declare (
 set (gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-c_ini_generate (
+c_ini_generate (test_parse_types
     INPUT "test_parse_types.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_parse_types.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_parse_types.c")
-c_ini_generate (
+c_ini_generate (test_defaults
     INPUT "test_defaults.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_defaults.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_defaults.c")
-c_ini_generate (
+c_ini_generate (test_fixed_str
     INPUT "test_fixed_str.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_fixed_str.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_fixed_str.c")
-c_ini_generate (
+c_ini_generate (test_dynamic_str
     INPUT "test_dynamic_str.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_dynamic_str.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_dynamic_str.c")
-c_ini_generate (
+c_ini_generate (test_custom_str
     INPUT "test_custom_str.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_custom_str.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_custom_str.c"
     INCLUDE_FILES "custom_str.h")
-c_ini_generate (
+c_ini_generate (test_fixed_strlist
     INPUT "test_fixed_strlist.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_fixed_strlist.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_fixed_strlist.c")
-c_ini_generate (
+c_ini_generate (test_dynamic_strlist
     INPUT "test_dynamic_strlist.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_dynamic_strlist.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_dynamic_strlist.c")
-c_ini_generate (
+c_ini_generate (test_custom_strlist
     INPUT "test_custom_strlist.cpp"
     OUTPUT_HEADER "${PROJECT_BINARY_DIR}/test_custom_strlist.h"
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/test_custom_strlist.c"
@@ -53,35 +53,28 @@ c_ini_generate (
 
 add_executable (c_ini_tests
     "test_parse_types.cpp"
-    "${PROJECT_BINARY_DIR}/test_parse_types.h"
-    "${PROJECT_BINARY_DIR}/test_parse_types.c"
     "test_defaults.cpp"
-    "${PROJECT_BINARY_DIR}/test_defaults.h"
-    "${PROJECT_BINARY_DIR}/test_defaults.c"
     "test_fixed_str.cpp"
-    "${PROJECT_BINARY_DIR}/test_fixed_str.h"
-    "${PROJECT_BINARY_DIR}/test_fixed_str.c"
     "test_dynamic_str.cpp"
-    "${PROJECT_BINARY_DIR}/test_dynamic_str.h"
-    "${PROJECT_BINARY_DIR}/test_dynamic_str.c"
     "test_custom_str.cpp"
     "custom_str.cpp"
-    "${PROJECT_BINARY_DIR}/test_custom_str.h"
-    "${PROJECT_BINARY_DIR}/test_custom_str.c"
     "test_fixed_strlist.cpp"
-    "${PROJECT_BINARY_DIR}/test_fixed_strlist.h"
-    "${PROJECT_BINARY_DIR}/test_fixed_strlist.c"
     "test_dynamic_strlist.cpp"
-    "${PROJECT_BINARY_DIR}/test_dynamic_strlist.h"
-    "${PROJECT_BINARY_DIR}/test_dynamic_strlist.c"
     "test_custom_strlist.cpp"
-    "${PROJECT_BINARY_DIR}/test_custom_strlist.h"
-    "${PROJECT_BINARY_DIR}/test_custom_strlist.c"
     "custom_strlist.cpp")
 target_include_directories (c_ini_tests PRIVATE
     "${PROJECT_SOURCE_DIR}"
     "${PROJECT_BINARY_DIR}")
 target_link_libraries (c_ini_tests PRIVATE
-    c_ini
     GTest::gmock
-    GTest::gmock_main)
+    GTest::gmock_main
+    test_parse_types
+    test_defaults
+    test_fixed_str
+    test_dynamic_str
+    test_custom_str
+    test_fixed_strlist
+    test_dynamic_strlist
+    test_custom_strlist)
+set_target_properties (c_ini_tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

@@ -1,9 +1,12 @@
 # No Bullshit INI parser for C
 
-## Example
+## Basic usage
+
+If  you  want to serialize/deserialze a struct, simply prefix that struct  with
+```SECTION("section name")```:
 
 ```c
-#include "c-ini.h"
+#include "player_data_ini_parser.h"
 
 SECTION("player")
 struct player_data
@@ -30,24 +33,9 @@ int main(void)
 }
 ```
 
-Adding ```SECTION("player")``` at the top of the struct makes it visible to the
-code generator.
-
-You can optionally add default values and constraints to each member:
-```c
-SECTION("player")
-struct player_data
-{
-    char* name DEFAULT("Player");
-    int health DEFAULT(100) CONSTRAIN(0, 100);
-    float x, y, z;
-};
-```
-
-```DEFAULT()``` modifies the ```_init()``` function to use the custom default values.
-
-```CONSTRAIN()``` adds  checks  to the ```_parse()``` function. If the INI file
-contains  a  value  outside  of  the  constrained  range,  then it will  error.
+This    makes    the     struct     visible     to    the    code    generator.
+```player_data_ini_parser.h``` is the generated header file. This declares some
+functions  used  to  load  and  save  the  struct  to  and  from  an INI  file.
 
 ## With CMake
 
@@ -55,30 +43,24 @@ If  you  are  using  a  CMake  project,  simply  ```add_subdirectory()```  this
 repository. This will give you a new CMake function:
 
 ```cmake
-c_ini_generate (
+c_ini_generate (my_parser
     INPUT
         "struct1.h"
         "struct2.h"
         "struct3.h"
-    OUTPUT_HEADER "${PROJECT_BINARY_DIR}/parser.h"
-    OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/parser.c")
+    OUTPUT_HEADER "${PROJECT_BINARY_DIR}/my_parser.h"
+    OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/my_parser.c")
 
-add_executable (my_application
-    "${PROJECT_BINARY_DIR}/parser.h"
-    "${PROJECT_BINARY_DIR}/parser.c")
-target_link_liraries (my_application PRIVATE c_ini)
+add_executable (my_application "main.c")
+# Appends the generated C source file to the executable target
+target_link_liraries (my_application PRIVATE my_parser)
+# This is so we can #include "my_parser.h"
+target_include_directories (my_application PRIVATE "${PROJECT_BINARY_DIR}")
 ```
 
 You can specify as many input files  as  you want. They can be header or source
 files. The  code  generator  will scan each input file and create functions for
 every struct it finds.
-
-A  header and source file pair is  generated,  which  you  should  add  to  the
-executable/library target.
-
-Note that you need to include "c-ini.h" so that macros such  as ```SECTION()```
-are  defined. The CMake target ```c_ini``` provides the include  path  to  this
-header.
 
 ## Use directly
 
@@ -98,13 +80,31 @@ Now you can generate  header/source file pairs from a list of input files with:
     --output-source parser.c
 ```
 
-Finally, you can compile  ```parser.h``` and ```parser.c``` files and link them
-with  your application. Note that you will need to ```#include "c-ini.h"```  so
-that macros such as ```SECTION()``` are defined:
+Finally, you can compile ```parser.h``` and  ```parser.c``` files and link them
+with your application. Note  that  you  will need to add an include path to the
+file  ```c-ini.h```  so  that  macros  such  as  ```SECTION()```  are  defined:
 
 ```sh
-gcc -I./c-ini/ -c parser.c -o parser.o
-gcc -I./c-ini/ -c main.c -o main.o
+gcc -I./c-ini/ parser.c -c -o parser.o
+gcc -I./c-ini/ main.c -c -o main.o
 gcc -o application parser.o main.o
 ```
 
+## Advanced Features
+
+You can optionally add default values and constraints to each member:
+
+```c
+SECTION("player")
+struct player_data
+{
+    char* name DEFAULT("Player");
+    int health DEFAULT(100) CONSTRAIN(0, 100);
+    float x, y, z;
+};
+```
+
+```DEFAULT()``` modifies the ```_init()``` function to use the custom default values.
+
+```CONSTRAIN()``` adds  checks  to the ```_parse()``` function. If the INI file
+contains  a  value  outside  of  the  constrained  range,  then it will  error.

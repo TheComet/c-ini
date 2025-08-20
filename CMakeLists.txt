@@ -14,12 +14,9 @@ set_target_properties (c_ini_generator PROPERTIES
     C_STANDARD 90
     C_EXTENSIONS NO)
 
-add_library (c_ini INTERFACE "c-ini/c-ini.h")
-target_include_directories (c_ini INTERFACE
-    "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/c-ini>"
-    $<INSTALL_INTERFACE:include>)
+set (C_INI_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/c-ini")
 
-function (c_ini_generate)
+function (c_ini_generate target)
     cmake_parse_arguments (ARG
         ""
         "OUTPUT_HEADER;OUTPUT_SOURCE"
@@ -61,6 +58,14 @@ function (c_ini_generate)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Generating C-INI source files from ${ARG_INPUT}"
         VERBATIM)
+    add_library (${target} INTERFACE
+        ${ARG_OUTPUT_HEADER}
+        ${ARG_OUTPUT_SOURCE})
+    target_sources (${target} INTERFACE
+        ${ARG_OUTPUT_HEADER}
+        ${ARG_OUTPUT_SOURCE})
+    target_include_directories (${target} INTERFACE
+        "$<BUILD_INTERFACE:${C_INI_INCLUDE_DIR}>")
 endfunction ()
 
 if (C_INI_EXAMPLES)
