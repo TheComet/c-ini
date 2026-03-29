@@ -423,27 +423,27 @@ utf16_conv_failed:
 
     if (fstat(fd, &stbuf) != 0)
     {
-        print_error(
-            "Failed to stat file \"%s\": %s\n", file_path, strerror(errno));
+        if (!silence_open_error)
+            print_error(
+                "Failed to stat file \"%s\": %s\n", file_path, strerror(errno));
         goto fstat_failed;
     }
     if (!S_ISREG(stbuf.st_mode))
     {
-        print_error("File \"%s\" is not a regular file!\n", file_path);
+        if (!silence_open_error)
+            print_error("File \"%s\" is not a regular file!\n", file_path);
         goto fstat_failed;
     }
 
-    mf->address = mmap(
-        NULL,
-        (size_t)stbuf.st_size,
-        PROT_READ,
-        MAP_PRIVATE | MAP_NORESERVE,
-        fd,
-        0);
+    mf->address =
+        mmap(NULL, (size_t)stbuf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     if (mf->address == MAP_FAILED)
     {
-        print_error(
-            "Failed to mmap() file \"%s\": %s\n", file_path, strerror(errno));
+        if (!silence_open_error)
+            print_error(
+                "Failed to mmap() file \"%s\" for reading: %s\n",
+                file_path,
+                strerror(errno));
         goto mmap_failed;
     }
 
@@ -551,10 +551,7 @@ utf16_conv_failed:
         goto open_failed;
     }
 
-    /* When truncating the file, it must be expanded again, otherwise writes to
-     * the memory will cause SIGBUS.
-     * NOTE: If this ever gets ported to non-Linux, see posix_fallocate() */
-    if (fallocate(fd, 0, 0, size) != 0)
+    if (ftruncate(fd, size) != 0)
     {
         print_error(
             "Failed to resize file \"%s\" to %d: %s\n",
@@ -643,7 +640,7 @@ create_file_mapping_failed:
  * \brief Unmaps a previously memory-mapped file.
  * \param mf Pointer to mfile structure.
  */
-void mfile_unmap(struct mfile* mf)
+static void mfile_unmap(struct mfile* mf)
 {
 #if defined(WIN32)
     UnmapViewOfFile(mf->address);
@@ -666,9 +663,7 @@ static int mfile_map_stdin(struct mfile* mf)
         {
             if (mfile_map_mem(&new_mf, mf->size ? mf->size * 2 : 1024 * 1024) !=
                 0)
-            {
                 return -1;
-            }
             memcpy(new_mf.address, mf->address, mf->size);
             if (mf->size)
                 mfile_unmap(mf);
@@ -682,7 +677,7 @@ static int mfile_map_stdin(struct mfile* mf)
 
     if (mfile_map_mem(&new_mf, len) != 0)
         return -1;
-    memcpy(mf->address, new_mf.address, len);
+    memcpy(new_mf.address, mf->address, len);
     mfile_unmap(mf);
     *mf = new_mf;
 
@@ -829,79 +824,146 @@ static void mstream_fmt(struct mstream* ms, const char* fmt, ...)
     va_end(va);
 }
 
+static int write_if_different(const struct mstream* ms, const char* filename)
+{
+    struct mfile mf;
+
+    /* Don't write resource if it is identical to the existing one -- causes
+     * less rebuilds */
+    if (mfile_map_read(&mf, filename, 1) == 0)
+    {
+        if (mf.size == ms->write_ptr &&
+            memcmp(mf.address, ms->address, mf.size) == 0)
+            return 0;
+        mfile_unmap(&mf);
+    }
+
+    /* Write out file */
+    if (mfile_map_write(&mf, filename, ms->write_ptr) != 0)
+        return -1;
+    memcpy(mf.address, ms->address, ms->write_ptr);
+    mfile_unmap(&mf);
+
+    return 0;
+}
+
 /* ----------------------------------------------------------------------------
  * Settings & Command Line
  * ------------------------------------------------------------------------- */
 
+enum output_format
+{
+    OUTPUT_NONE,
+    OUTPUT_C,
+    OUTPUT_H
+};
+
 struct cfg
 {
-    const char* output_header;
-    const char* output_source;
-    char**      input_fnames;
-    int         input_count;
-    char**      include_files;
-    int         include_file_count;
+    char**             input_fnames;
+    char**             c_includes;
+    const char*        output_header;
+    const char*        output_source;
+    int                input_count;
+    int                c_includes_count;
+    enum output_format output_format;
 };
+
+static enum output_format determine_format_from_filename(const char* filename)
+{
+    int len;
+    if (filename == NULL)
+        return OUTPUT_NONE;
+    len = strlen(filename);
+    if (strcmp(&filename[len - 2], ".c") == 0)
+        return OUTPUT_C;
+    if (strcmp(&filename[len - 2], ".h") == 0)
+        return OUTPUT_H;
+    return OUTPUT_NONE;
+}
 
 static int print_help(const char* prog_name)
 {
-    fprintf(
-        stderr,
-        "Usage: %s <args>\n"
-        "  --input <files...>\n"
-        "  --include-files <additional files to include...>\n"
-        "  --output-header <filename.h>\n"
-        "  --output-source <filename.c>\n",
+    /* clang-format off */
+    fprintf(stderr,
+"Usage: %s <args>\n"
+"  -i <file1> [file2...]\n"
+"        List of files to scan for structs.\n",
         prog_name);
+    fprintf(stderr,
+"  -o [output.c] [output.h]\n"
+"        Sets the output files to generate. The format is determined from the\n"
+"        file extension. If no output file is specified, then the program will\n"
+"        write to stdout. The format must be specified with -f in this case.\n");
+    fprintf(stderr,
+"  -f <c|h>\n"
+"        When writing to stdout, controls the generated output type. The\n"
+"        default is C.\n");
+    fprintf(stderr,
+"  --c-includes <additional files to include...>\n"
+"        Prepend additional header files to include in the generated C file.\n");
+    /* clang-format on */
     return 1;
 }
 
 static int parse_cmdline(int argc, char** argv, struct cfg* cfg)
 {
     int i;
+
+    /* defaults */
+    cfg->output_format = OUTPUT_C;
+
     for (i = 1; i < argc; ++i)
     {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
             return print_help(argv[0]);
-        else if (strcmp(argv[i], "--input") == 0)
+        else if (strcmp(argv[i], "-i") == 0)
         {
-            if (i + 1 >= argc)
-                return print_error(
-                    "Missing input filename(s) to option --input\n");
             cfg->input_fnames = &argv[i + 1];
             cfg->input_count = 0;
-            while (i + 1 < argc && argv[i + 1][0] != '-')
-                ++i, ++cfg->input_count;
+            for (; i + 1 < argc && argv[i + 1][0] != '-'; i++)
+                cfg->input_count++;
             if (cfg->input_count == 0)
-                return print_error("No input files specified\n");
+                return print_error("Missing input filename(s) to option -i\n");
         }
-        else if (strcmp(argv[i], "--include-files") == 0)
+        else if (strcmp(argv[i], "-o") == 0)
         {
-            if (i + 1 >= argc)
-                return print_error(
-                    "Missing include dir(s) to option --include-files\n");
-            cfg->include_files = &argv[i + 1];
-            cfg->include_file_count = 0;
-            while (i + 1 < argc && argv[i + 1][0] != '-')
-                ++i, ++cfg->include_file_count;
-            if (cfg->include_file_count == 0)
-                return print_error("No include directories specified\n");
+            int output_count = 0;
+            for (; i + 1 < argc && argv[i + 1][0] != '-'; i++, output_count++)
+                switch (determine_format_from_filename(argv[i + 1]))
+                {
+                    case OUTPUT_NONE:
+                        return print_error(
+                            "Unknown file extension for input file \"%s\"\n",
+                            argv[i + 1]);
+                    case OUTPUT_C: cfg->output_source = argv[i + 1]; break;
+                    case OUTPUT_H: cfg->output_header = argv[i + 1]; break;
+                }
+            if (output_count == 0)
+                return print_error("Missing output filename(s) to option -o\n");
         }
-        else if (strcmp(argv[i], "--output-header") == 0)
-        {
-            if (++i >= argc)
-                return print_error(
-                    "Missing output header filename to option "
-                    "--output-header\n");
-            cfg->output_header = argv[i];
-        }
-        else if (strcmp(argv[i], "--output-source") == 0)
+        else if (strcmp(argv[i], "-f") == 0)
         {
             if (++i >= argc)
                 return print_error(
-                    "Missing output source filename to option "
-                    "--output-source\n");
-            cfg->output_source = argv[i];
+                    "Missing output format specifier to option -f\n");
+            if (strcmp(argv[i], "c") == 0)
+                cfg->output_format = OUTPUT_C;
+            else if (strcmp(argv[i], "h") == 0)
+                cfg->output_format = OUTPUT_H;
+            else
+                return print_error(
+                    "Unknown format \"%s\" to option -f\n", argv[i]);
+        }
+        else if (strcmp(argv[i], "--c-includes") == 0)
+        {
+            cfg->c_includes = &argv[i + 1];
+            cfg->c_includes_count = 0;
+            for (; i + 1 < argc && argv[i + 1][0] != '-'; i++)
+                cfg->c_includes_count++;
+            if (cfg->c_includes_count == 0)
+                return print_error(
+                    "No header file(s) specified to option --c-includes\n");
         }
         else
         {
@@ -1904,7 +1966,7 @@ static enum token parse_struct_unknown_data_type(
 static enum token parse_struct(struct parser* p, struct section* section)
 {
     enum token       tok;
-    enum c_data_type c_type;
+    enum c_data_type c_type = CDT_UNKNOWN;
 
     while (1)
     {
@@ -1998,71 +2060,78 @@ parse(struct parser* p, struct root* root, int input_is_a_source_file)
 #    define NL "\n"
 #endif
 
-static void gen_header(struct mstream* ms, const struct root* root)
+static int gen_header(const char* filename, const struct root* root)
 {
     const struct section* section;
-    mstream_cstr(ms, "#pragma once\n\n");
+    struct mstream        ms = mstream_init_writeable();
 
-    mstream_cstr(ms, "#include \"c-ini.h\"\n");
-    mstream_cstr(ms, "#include <stdio.h>\n");
-    mstream_cstr(ms, "#include <stdint.h>\n\n");
+    mstream_cstr(&ms, "#pragma once\n\n");
 
-    mstream_cstr(ms, "#if defined(__cplusplus)\n");
-    mstream_cstr(ms, "extern \"C\" {\n");
-    mstream_cstr(ms, "#endif\n\n");
+    mstream_cstr(&ms, "#include \"c-ini.h\"\n");
+    mstream_cstr(&ms, "#include <stdio.h>\n");
+    mstream_cstr(&ms, "#include <stdint.h>\n\n");
 
-    mstream_cstr(ms, "struct c_ini_parser;\n\n");
+    mstream_cstr(&ms, "#if defined(__cplusplus)\n");
+    mstream_cstr(&ms, "extern \"C\" {\n");
+    mstream_cstr(&ms, "#endif\n\n");
+
+    mstream_cstr(&ms, "struct c_ini_parser;\n\n");
 
     for (section = root->sections; section; section = section->next)
     {
-        mstream_fmt(ms, "struct %S;\n", section->struct_name);
+        mstream_fmt(&ms, "struct %S;\n", section->struct_name);
         mstream_fmt(
-            ms,
+            &ms,
             "int %S_init(struct %S* s);\n",
             section->struct_name,
             section->struct_name);
         mstream_fmt(
-            ms,
+            &ms,
             "void %S_deinit(struct %S* s);\n",
             section->struct_name,
             section->struct_name);
         mstream_fmt(
-            ms,
+            &ms,
             "int %S_parse(struct %S* s, const char* filename, const char* "
             "data, "
             "int len);\n",
             section->struct_name,
             section->struct_name);
         mstream_fmt(
-            ms,
+            &ms,
             "int %S_parse_all(const char* filename, const char* data, int len, "
             "int (*on_section)(struct c_ini_parser* parser, void* user_ptr),"
             "void* user_ptr);\n",
             section->struct_name,
             section->struct_name);
         mstream_fmt(
-            ms,
+            &ms,
             "int %S_parse_section(struct %S* s, struct c_ini_parser* p);\n",
             section->struct_name,
             section->struct_name);
         mstream_fmt(
-            ms,
+            &ms,
             "int %S_fwrite(const struct %S* s, FILE* f);\n",
             section->struct_name,
             section->struct_name);
         mstream_fmt(
-            ms,
+            &ms,
             "int %S_for_each_value(struct %S* s, int (*on_value)(void* value, "
             "int type, void*), void* user_ptr);\n",
             section->struct_name,
             section->struct_name,
             section->struct_name);
-        mstream_cstr(ms, "\n");
+        mstream_cstr(&ms, "\n");
     }
 
-    mstream_cstr(ms, "#if defined(__cplusplus)\n");
-    mstream_cstr(ms, "}\n");
-    mstream_cstr(ms, "#endif\n\n");
+    mstream_cstr(&ms, "#if defined(__cplusplus)\n");
+    mstream_cstr(&ms, "}\n");
+    mstream_cstr(&ms, "#endif\n\n");
+
+    if (filename)
+        return write_if_different(&ms, filename);
+    fwrite(ms.address, ms.write_ptr, 1, stdout);
+    return 0;
 }
 
 /* ----------------------------------------------------------------------------
@@ -2073,15 +2142,8 @@ static void gen_source_includes(struct mstream* ms, const struct cfg* cfg)
 {
     int i;
 
-    for (i = 0; i != cfg->input_count; ++i)
-        if (!file_is_source_file(cfg->input_fnames[i]))
-            mstream_fmt(ms, "#include \"%s\"\n", cfg->input_fnames[i]);
-
-    if (cfg->output_header != NULL)
-        mstream_fmt(ms, "#include \"%s\"\n", cfg->output_header);
-
-    for (i = 0; i != cfg->include_file_count; ++i)
-        mstream_fmt(ms, "#include \"%s\"\n", cfg->include_files[i]);
+    for (i = 0; i != cfg->c_includes_count; ++i)
+        mstream_fmt(ms, "#include \"%s\"\n", cfg->c_includes[i]);
 
     mstream_cstr(ms, "#include <stdlib.h>\n");
     mstream_cstr(ms, "#include <ctype.h>\n");
@@ -3359,71 +3421,53 @@ gen_source_for_each_value(struct mstream* ms, const struct section* section)
     mstream_cstr(ms, "}\n\n");
 }
 
-static void
-gen_source(struct mstream* ms, const struct root* root, const struct cfg* cfg)
+static int
+gen_source(const char* filename, const struct root* root, const struct cfg* cfg)
 {
     const struct section* section;
+    struct mstream        ms = mstream_init_writeable();
 
-    gen_source_includes(ms, cfg);
-    gen_source_ini_parser(ms);
-    gen_source_helpers(ms, root);
+    gen_source_includes(&ms, cfg);
+    gen_source_ini_parser(&ms);
+    gen_source_helpers(&ms, root);
 
     for (section = root->sections; section; section = section->next)
     {
-        gen_source_init(ms, section);
-        gen_source_deinit(ms, section);
-        gen_source_fwrite(ms, section);
-        gen_source_parse_section(ms, section);
-        gen_source_parse(ms, section);
-        gen_source_parse_all(ms, section);
-        gen_source_for_each_value(ms, section);
-    }
-}
-
-static int write_if_different(const struct mstream* ms, const char* filename)
-{
-    struct mfile mf;
-
-    /* Don't write resource if it is identical to the existing one -- causes
-     * less rebuilds */
-    if (mfile_map_read(&mf, filename, 1) == 0)
-    {
-        if (mf.size == ms->write_ptr &&
-            memcmp(mf.address, ms->address, mf.size) == 0)
-            return 0;
-        mfile_unmap(&mf);
+        gen_source_init(&ms, section);
+        gen_source_deinit(&ms, section);
+        gen_source_fwrite(&ms, section);
+        gen_source_parse_section(&ms, section);
+        gen_source_parse(&ms, section);
+        gen_source_parse_all(&ms, section);
+        gen_source_for_each_value(&ms, section);
     }
 
-    /* Write out file */
-    if (mfile_map_write(&mf, filename, ms->write_ptr) != 0)
-        return -1;
-    memcpy(mf.address, ms->address, ms->write_ptr);
-    mfile_unmap(&mf);
-
+    if (filename)
+        return write_if_different(&ms, filename);
+    fwrite(ms.address, ms.write_ptr, 1, stdout);
     return 0;
 }
 
 int main(int argc, char** argv)
 {
-    struct mfile   mf;
-    struct mstream ms;
-    struct parser  parser;
-    struct cfg     cfg = {0};
-    struct root    root = {0};
+    struct mfile  mf;
+    struct parser parser;
+    struct cfg    cfg = {0};
+    struct root   root = {0};
 
     if (!stream_is_terminal(stderr))
         disable_colors = 1;
 
     if (parse_cmdline(argc, argv, &cfg) != 0)
-        return -1;
+        return EXIT_FAILURE;
 
     if (cfg.input_fnames == NULL)
     {
         if (mfile_map_stdin(&mf) != 0)
-            return -1;
+            return EXIT_FAILURE;
         parser_init(&parser, &mf, "<stdin>");
         if (parse(&parser, &root, 0) != 0)
-            return -1;
+            return EXIT_FAILURE;
     }
     else
     {
@@ -3432,26 +3476,27 @@ int main(int argc, char** argv)
         {
             char is_source_file = file_is_source_file(cfg.input_fnames[i]);
             if (mfile_map_read(&mf, cfg.input_fnames[i], 0) != 0)
-                return -1;
+                return EXIT_FAILURE;
             parser_init(&parser, &mf, cfg.input_fnames[i]);
             if (parse(&parser, &root, is_source_file) != 0)
-                return -1;
+                return EXIT_FAILURE;
         }
     }
 
-    ms = mstream_init_writeable();
-    gen_header(&ms, &root);
-    if (cfg.output_header == NULL)
-        fwrite(ms.address, ms.write_ptr, 1, stdout);
-    else if (write_if_different(&ms, cfg.output_header) != 0)
-        return -1;
+    if (cfg.output_source == NULL && cfg.output_header == NULL)
+        switch (cfg.output_format)
+        {
+            case OUTPUT_NONE: break;
+            case OUTPUT_C: return gen_source(NULL, &root, &cfg);
+            case OUTPUT_H: return gen_header(NULL, &root);
+        }
 
-    ms = mstream_init_writeable();
-    gen_source(&ms, &root, &cfg);
-    if (cfg.output_source == NULL)
-        fwrite(ms.address, ms.write_ptr, 1, stdout);
-    else if (write_if_different(&ms, cfg.output_source) != 0)
-        return -1;
+    if (cfg.output_source)
+        if (gen_source(cfg.output_source, &root, &cfg) != 0)
+            return EXIT_FAILURE;
+    if (cfg.output_header)
+        if (gen_header(cfg.output_header, &root) != 0)
+            return EXIT_FAILURE;
 
-    return 0;
+    return EXIT_SUCCESS;
 }

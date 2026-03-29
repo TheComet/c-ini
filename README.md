@@ -45,7 +45,7 @@ If  you  are  using  a  CMake  project,  simply  ```add_subdirectory()```  this
 repository. This will give you a new CMake function:
 
 ```cmake
-c_ini_generate (my_parser
+c_ini_generate (my_parser  # name of cmake target to create
     INPUT
         "struct1.h"
         "struct2.h"
@@ -54,7 +54,6 @@ c_ini_generate (my_parser
     OUTPUT_SOURCE "${PROJECT_BINARY_DIR}/my_parser.c")
 
 add_executable (my_application "main.c")
-# Appends the generated C source file to the executable target
 target_link_liraries (my_application PRIVATE my_parser)
 # This is so we can #include "my_parser.h"
 target_include_directories (my_application PRIVATE "${PROJECT_BINARY_DIR}")
